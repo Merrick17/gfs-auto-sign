@@ -1,0 +1,196 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model MailboxConnection {
+  id            String              @id @default(cuid())
+  mailboxId     String              @unique
+  tenantId      String
+  subscriptions GraphSubscription[]
+  events        IncomingEvent[]
+  createdAt     DateTime            @default(now())
+}
+
+model GraphSubscription {
+  id          String            @id @default(cuid())
+  graphId     String            @unique
+  mailboxId   String
+  mailbox     MailboxConnection @relation(fields: [mailboxId], references: [id])
+  resource    String
+  clientState String
+  expiresAt   DateTime
+  status      String            @default("active")
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([expiresAt])
+}
+
+// Inbox/outbox row: persisted before ack, stays PENDING until Trigger.dev accepted the run.
+model IncomingEvent {
+  id             String            @id @default(cuid())
+  mailboxId      String
+  mailbox        MailboxConnection @relation(fields: [mailboxId], references: [id])
+  dedupeKey      String            @unique
+  kind           String // message.created | lifecycle
+  graphMessageId String?
+  subscriptionId String
+  payload        Json
+  dispatchStatus String            @default("PENDING") // PENDING | DISPATCHED
+  triggerRunId   String?
+  dispatchedAt   DateTime?
+  attempts       Int               @default(0)
+  receivedAt     DateTime          @default(now())
+  job            ProcessingJob?
+
+  @@index([dispatchStatus, receivedAt])
+}
+
+model ProcessingJob {
+  id        String        @id @default(cuid())
+  eventId   String        @unique
+  event     IncomingEvent @relation(fields: [eventId], references: [id])
+  stage     String        @default("EMAIL_RECEIVED")
+  status    String        @default("RUNNING") // RUNNING | COMPLETED | FAILED
+  detail    Json?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+}
+
+model Contract {
+  id             String             @id @default(cuid())
+  mailboxId      String
+  graphMessageId String
+  attachmentId   String
+  attachmentName String
+  contentHash    String // sha256 of original PDF
+  contractNumber String?
+  revision       String             @default("0")
+  customer       String?
+  status         String             @default("RECEIVED") // RECEIVED|ANALYZING|NEEDS_REVIEW|AUTHORIZED|SIGNING|SIGNED|STORED|DRAFT_READY|FAILED
+  stage          String             @default("EMAIL_RECEIVED")
+  originalDocId  String?
+  signedDocId    String?
+  conversationId String?
+  costUsd        Decimal            @default(0) @db.Decimal(10, 4)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  analyses       ContractAnalysis[]
+  documents      DocumentRef[]
+  draft          OutlookDraft?
+  audits         AuditEvent[]
+  exception      String?
+
+  // Same attachment bytes of the same message are processed once.
+  @@unique([mailboxId, graphMessageId, attachmentId, contentHash])
+  @@index([status, createdAt])
+  @@index([customer, contractNumber])
+}
+
+model ContractAnalysis {
+  id            String   @id @default(cuid())
+  contractId    String
+  contract      Contract @relation(fields: [contractId], references: [id])
+  model         String
+  result        Json // structured output incl. evidence
+  decision      String // APPROVE | REVIEW
+  reasons       Json
+  policyVersion Int?
+  inputTokens   Int      @default(0)
+  outputTokens  Int      @default(0)
+  costUsd       Decimal  @default(0) @db.Decimal(10, 4)
+  createdAt     DateTime @default(now())
+
+  @@index([contractId])
+}
+
+model SigningPolicy {
+  id                       String   @id @default(cuid())
+  version                  Int      @unique
+  active                   Boolean  @default(false)
+  autonomousSigningEnabled Boolean  @default(false)
+  rules                    Json // customers, types, limits, terms, mandatory review, CC map
+  createdAt                DateTime @default(now())
+  createdBy                String
+}
+
+model SignatureProfile {
+  id                     String    @id @default(cuid())
+  signatoryName          String
+  title                  String
+  signatureImageRef      String // SharePoint reference
+  certificateRef         String // encrypted blob reference, never plaintext
+  certificateFingerprint String
+  certSubject            String
+  certNotAfter           DateTime
+  selfSigned             Boolean   @default(true)
+  runtimeApprovedAt      DateTime? // owner consent for the signing runtime
+  active                 Boolean   @default(false)
+  createdAt              DateTime  @default(now())
+}
+
+model DocumentRef {
+  id            String   @id @default(cuid())
+  contractId    String
+  contract      Contract @relation(fields: [contractId], references: [id])
+  kind          String // ORIGINAL | SIGNED
+  driveId       String
+  itemId        String
+  sha256        String
+  verification  Json?
+  policyVersion Int?
+  createdAt     DateTime @default(now())
+
+  @@unique([contractId, kind])
+}
+
+model OutlookDraft {
+  id           String   @id @default(cuid())
+  contractId   String   @unique
+  contract     Contract @relation(fields: [contractId], references: [id])
+  graphDraftId String?
+  state        String   @default("CREATING") // CREATING | CREATED | ATTACHED | AMBIGUOUS
+  marker       String   @unique // internet-header marker used to find an ambiguous draft
+  to           Json?
+  cc           Json?
+  attachmentOk Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model AuditEvent {
+  id         String    @id @default(cuid())
+  contractId String?
+  contract   Contract? @relation(fields: [contractId], references: [id])
+  actor      String // system | owner
+  action     String
+  data       Json?
+  createdAt  DateTime  @default(now())
+
+  @@index([contractId, createdAt])
+}
+
+model AppSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
+model UsageRecord {
+  id           String   @id @default(cuid())
+  source       String // openai | trigger
+  contractId   String?
+  model        String?
+  inputTokens  Int      @default(0)
+  outputTokens Int      @default(0)
+  costUsd      Decimal  @db.Decimal(10, 4)
+  durationMs   Int?
+  createdAt    DateTime @default(now())
+
+  @@index([source, createdAt])
+}

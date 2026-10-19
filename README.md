@@ -1,36 +1,37 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# GFS Contract Agent
 
-## Getting Started
+Event-driven sales contract processing for Green Fashion Solutions.
+Outlook email → Microsoft Graph notification → Vercel webhook → Trigger.dev tasks → Neon records →
+signed PDF in SharePoint → reply draft in Outlook. Nothing is ever sent automatically.
 
-First, run the development server:
+See `docs/DEPLOYMENT.md` for setup, Entra permissions and the security assessment.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## Flow
+
+| Stage | Where | Code |
+| --- | --- | --- |
+| Accept + dedupe + outbox | Vercel | `app/api/webhooks/microsoft-graph/route.ts`, `src/lib/dispatch.ts` |
+| Intake, PDF validation, original to SharePoint | Trigger.dev | `src/lib/intake.ts`, `outlook-email-received` |
+| GPT extraction (Responses API, structured output) | Trigger.dev | `analyze-sales-contract` |
+| Policy decision | Trigger.dev | `src/lib/policy.ts`, `authorize-contract-signing` |
+| Visible + cryptographic signature, verification | Trigger.dev | `src/lib/pdf-sign.ts`, `src/lib/signing.ts` |
+| Store + draft | Trigger.dev | `store-signed-document`, `src/lib/drafts.ts` |
+| Subscription renewal, lifecycle, delta recovery | Trigger.dev | `src/trigger/subscription-maintenance.ts`, `delta-sync.ts` |
+
+## Commands
+
+```
+npm test                 # unit + integration tests (embedded Postgres, faked Graph/SharePoint)
+npm run typecheck
+npm run db:migrate       # prisma migrate deploy
+npm run trigger:dev      # local Trigger.dev dev server (needs `trigger.dev login` and TRIGGER_SECRET_KEY)
+npm run trigger:deploy
+npm run smoke:webhook -- https://<app>
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Known limits
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Documents that already carry a digital signature, are encrypted, or are certified are escalated unsigned:
+  the JS signer rewrites the file and cannot keep earlier signatures valid.
+- A self-signed certificate proves the file is unchanged since signing, not the signer's legal identity.
+- Live Graph, OpenAI, SharePoint and Trigger.dev behaviour is untested until credentials are configured.
