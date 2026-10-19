@@ -127,12 +127,12 @@ async function main() {
 
   check("NOTASC.pdf is recognised as not a sales contract and ignored", by("NOTASC.pdf").status === "IGNORED", by("NOTASC.pdf").status);
   check("over-limit contract stays unsigned with a reason", by("SC-OVERLIMIT.pdf").status === "NEEDS_REVIEW" && /exceeds limit/.test(by("SC-OVERLIMIT.pdf").exception ?? ""), by("SC-OVERLIMIT.pdf").exception ?? "");
-  check("prompt-injection contract stays unsigned", by("SC-INJECTION.pdf").status === "NEEDS_REVIEW" && /instructions aimed at the agent/.test(by("SC-INJECTION.pdf").exception ?? ""));
+  check("prompt-injection contract stays unsigned", by("SC-INJECTION.pdf").status === "NEEDS_REVIEW" && /instructions addressed to the assistant/.test(by("SC-INJECTION.pdf").exception ?? ""));
   check("unknown customer stays unsigned", by("SC-UNKNOWNCUSTOMER.pdf").status === "NEEDS_REVIEW" && /not on the approved list/.test(by("SC-UNKNOWNCUSTOMER.pdf").exception ?? ""));
   check("none of the unauthorised contracts has a signed document", ["SC-OVERLIMIT.pdf", "SC-INJECTION.pdf", "SC-UNKNOWNCUSTOMER.pdf", "NOTASC.pdf"].every((n) => !by(n).documents.some((d) => d.kind === "SIGNED")));
 
   if (!signerReady) {
-    check("eligible contracts stop for review while no signer is approved (safe default)", [ok1, ok2].every((c) => c.status === "NEEDS_REVIEW" && /certificate not approved/i.test(c.exception ?? "")), ok1.exception ?? ok1.status);
+    check("eligible contracts stop for review while no signer is approved (safe default)", [ok1, ok2].every((c) => c.status === "NEEDS_REVIEW" && /signature setup isn.t finished/i.test(c.exception ?? "")), ok1.exception ?? ok1.status);
     console.log("\nNo signing certificate has been imported yet: signing, SharePoint upload and draft steps were NOT exercised.");
   } else {
     const { verifyPdfSignature } = await import("@/lib/pdf-sign");

@@ -20,7 +20,7 @@ async function findMarkedDraft(marker: string): Promise<Msg | null> {
   return r.value[0] ?? null;
 }
 
-async function writeBody(contract: { customer: string | null; contractNumber: string | null }, language: string | null) {
+async function writeBody(contract: { customer: string | null; contractNumber: string | null }, language: string | null, ownerNotes = "") {
   const ref = contract.contractNumber ? ` (${contract.contractNumber})` : "";
   const fallback = `Dear ${contract.customer ?? "Sir or Madam"},<br><br>Please find attached the signed sales contract${ref}.<br><br>Kind regards`;
   if (!process.env.OPENAI_API_KEY) return fallback;
@@ -31,7 +31,7 @@ async function writeBody(contract: { customer: string | null; contractNumber: st
       model: process.env.OPENAI_MODEL_PRIMARY ?? "gpt-6-luna",
       store: false,
       instructions: "Write a concise, professional two-sentence email body in HTML (no signature block) confirming that the signed contract is attached. Use the requested language. Output only the HTML.",
-      input: `Language: ${language ?? "English"}\nCustomer: ${contract.customer}\nContract reference: ${contract.contractNumber ?? "n/a"}`,
+      input: `Language: ${language ?? "English"}\nCustomer: ${contract.customer}\nContract reference: ${contract.contractNumber ?? "n/a"}${ownerNotes ? `\nNotes from the owner for this customer (trusted): ${ownerNotes}` : ""}`,
     });
     return r.output_text.trim() || fallback;
   } catch {
@@ -57,9 +57,13 @@ export async function createReplyDraft(contractId: string) {
 
   const analysis = await db.contractAnalysis.findFirstOrThrow({ where: { contractId }, orderBy: { createdAt: "desc" } });
   const extracted = contractExtraction.parse(analysis.result);
-  const policy = await db.signingPolicy.findFirst({ where: { active: true }, orderBy: { version: "desc" } });
+  // Recipients come from the policy version that approved this contract, not whatever is active now.
+  const policy =
+    (analysis.policyVersion !== null ? await db.signingPolicy.findUnique({ where: { version: analysis.policyVersion } }) : null) ??
+    (await db.signingPolicy.findFirst({ where: { active: true }, orderBy: { version: "desc" } }));
   const rules = policy ? policyRules.parse(policy.rules) : null;
-  const rule = rules?.customers.find((r) => r.name.toLowerCase().trim() === (c.customer ?? "").toLowerCase().trim());
+  const sameName = (r: { name: string }) => r.name.toLowerCase().trim() === (c.customer ?? "").toLowerCase().trim();
+  const rule = (analysis.ruleId ? rules?.customers.find((r) => r.ruleId === analysis.ruleId) : undefined) ?? rules?.customers.find(sameName);
   const to = rule?.replyTo.length ? rule.replyTo : null;
   const cc = rule?.cc ?? [];
 
@@ -80,7 +84,7 @@ export async function createReplyDraft(contractId: string) {
 
   // Recipients and body are written once; a crash after creating but before this point is repaired here.
   if (rec.state === "CREATING" && !draft.body?.content.includes(BODY_TAG)) {
-    const html = await writeBody(c, extracted.language);
+    const html = await writeBody(c, extracted.language, rule?.instructions ?? "");
     await graph(`${mailboxPath()}/messages/${draft.id}`, {
       method: "PATCH",
       body: {

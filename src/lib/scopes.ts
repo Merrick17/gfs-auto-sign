@@ -3,6 +3,8 @@ export const GRAPH_SCOPES = [
   "https://graph.microsoft.com/Mail.Read",
   "https://graph.microsoft.com/Mail.ReadWrite",
   "https://graph.microsoft.com/Files.ReadWrite",
+  "https://graph.microsoft.com/Contacts.Read",
+  "https://graph.microsoft.com/People.Read",
   "offline_access",
 ].join(" ");
 

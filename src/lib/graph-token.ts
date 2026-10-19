@@ -9,13 +9,20 @@ export class AuthRequired extends Error {
   retryable = false;
 }
 
-export async function storeRefreshToken(userOid: string, refreshToken: string, scope?: string) {
+export async function storeRefreshToken(userOid: string, refreshToken: string, scope?: string, account?: { email?: string; name?: string }) {
   const sealed = seal(Buffer.from(refreshToken)).toString("base64");
   await getDb().oAuthConnection.upsert({
     where: { userOid },
-    create: { userOid, refreshToken: sealed, scope },
-    update: { refreshToken: sealed, scope },
+    create: { userOid, refreshToken: sealed, scope, accountEmail: account?.email, accountName: account?.name },
+    update: { refreshToken: sealed, scope, ...(account?.email ? { accountEmail: account.email } : {}), ...(account?.name ? { accountName: account.name } : {}) },
   });
+  cached = null; // new sign-in: pick up the new permissions on the next call
+}
+
+// What Microsoft actually granted to the current access token (the `scp` claim), never an assumption.
+export async function grantedScopes(): Promise<string[]> {
+  const claims = JSON.parse(Buffer.from((await accessToken()).split(".")[1], "base64url").toString()) as { scp?: string };
+  return (claims.scp ?? "").split(" ").filter(Boolean);
 }
 
 let cached: { token: string; exp: number } | null = null;

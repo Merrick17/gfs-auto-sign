@@ -20,7 +20,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       const oid = (profile as { oid?: string } | undefined)?.oid;
       if (!oid || !process.env.OWNER_OBJECT_ID || oid !== process.env.OWNER_OBJECT_ID) return false;
       // Keep the owner's delegated refresh token so background tasks can call Graph without a browser session.
-      if (account?.refresh_token) await storeRefreshToken(oid, account.refresh_token, account.scope);
+      if (account?.refresh_token) {
+        const p = profile as { name?: string; email?: string; preferred_username?: string };
+        await storeRefreshToken(oid, account.refresh_token, account.scope, { email: p.email ?? p.preferred_username, name: p.name });
+      }
       return true;
     },
   },

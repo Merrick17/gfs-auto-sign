@@ -15,6 +15,7 @@ export async function authorizeContractSigning(contractId: string, next: () => P
 
   const policy = await db.signingPolicy.findFirst({ where: { active: true }, orderBy: { version: "desc" } });
   const profile = await db.signatureProfile.findFirst({ where: { active: true } });
+  const image = await db.signatureImage.findFirst({ where: { active: true } });
   const rules = policy ? policyRules.safeParse(policy.rules) : null;
   const alreadySigned = extracted.contractNumber
     ? (await db.contract.count({
@@ -32,13 +33,13 @@ export async function authorizeContractSigning(contractId: string, next: () => P
     mandateEnabled: Boolean(policy?.autonomousSigningEnabled),
     policyVersion: policy?.version ?? null,
     rules: rules?.success ? rules.data : null,
-    signerReady: Boolean(profile?.runtimeApprovedAt && profile.certNotAfter > new Date()),
+    signerReady: Boolean(image && profile?.runtimeApprovedAt && profile.certNotAfter > new Date()),
     alreadySigned,
   });
 
   await db.contractAnalysis.update({
     where: { id: analysis.id },
-    data: { decision: decision.approve ? "APPROVE" : "REVIEW", reasons: decision.reasons, policyVersion: policy?.version ?? null },
+    data: { decision: decision.approve ? "APPROVE" : "REVIEW", reasons: decision.reasons, policyVersion: policy?.version ?? null, ruleId: decision.customerRule?.ruleId ?? null },
   });
 
   if (!decision.approve) {

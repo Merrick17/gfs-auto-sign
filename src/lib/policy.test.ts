@@ -29,3 +29,30 @@ test("blocks mandatory-review keywords", () =>
   assert.equal(evaluate({ ...doc, obligations: ["Grants exclusivity in EU"] }, ctx).approve, false));
 test("blocks re-signing the same revision", () => assert.equal(evaluate(doc, { ...ctx, alreadySigned: true }).approve, false));
 test("blocks when the signer is not approved", () => assert.equal(evaluate(doc, { ...ctx, signerReady: false }).approve, false));
+
+test("a customer with several rules is approved when any one rule fits", () => {
+  const two = {
+    ...ctx,
+    rules: {
+      ...ctx.rules!,
+      customers: [
+        { ...ctx.rules!.customers[0], ruleId: "small", maxAmount: 5000, paymentTerms: ["30 days"] },
+        { ...ctx.rules!.customers[0], ruleId: "big", maxAmount: 50000, paymentTerms: ["60 days"], deliveryTerms: ["FOB"] },
+      ],
+    },
+  };
+  const small = evaluate({ ...doc, amount: 4000 }, two);
+  assert.equal(small.approve, true);
+  assert.equal(small.customerRule?.ruleId, "small");
+  const big = evaluate({ ...doc, amount: 40000, paymentTerms: "60 days net" }, two);
+  assert.equal(big.approve, true);
+  assert.equal(big.customerRule?.ruleId, "big");
+  assert.equal(evaluate({ ...doc, amount: 40000 }, two).approve, false);
+});
+
+test("contract type matches by words, not exact text", () => {
+  const typed = { ...ctx, rules: { ...ctx.rules!, customers: [{ ...ctx.rules!.customers[0], contractTypes: ["sales"] }] } };
+  assert.equal(evaluate({ ...doc, contractType: "Sales Contract" }, typed).approve, true);
+  assert.equal(evaluate({ ...doc, contractType: "Purchase order" }, typed).approve, false);
+  assert.equal(evaluate({ ...doc, contractType: null }, typed).approve, false);
+});

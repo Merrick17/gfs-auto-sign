@@ -73,8 +73,9 @@ before(async () => {
       rules: { minConfidence: 0.8, mandatoryReviewKeywords: [], customers: [{ name: "Acme GmbH", currency: "EUR", maxAmount: 50000, contractTypes: [], paymentTerms: ["30 days"], deliveryTerms: ["FOB"], replyTo: [], cc: [], instructions: "" }] },
     },
   });
+  await db.signatureImage.create({ data: { version: 1, driveId: "d", itemId: "i", fileName: "s.png", sha256: "h", sizeBytes: 1, width: 400, height: 120, active: true } });
   await db.signatureProfile.create({
-    data: { signatoryName: "O", title: "", signatureImageRef: "d:i", certificateRef: "d:c", certificateFingerprint: "f", certSubject: "CN=O", certNotAfter: new Date(Date.now() + 1e10), active: true, runtimeApprovedAt: new Date() },
+    data: { signatoryName: "O", title: "", certificateRef: "d:c", certificateFingerprint: "f", certSubject: "CN=O", certNotAfter: new Date(Date.now() + 1e10), active: true, runtimeApprovedAt: new Date() },
   });
   ({ analyzeContract } = await import("./analysis"));
   ({ authorizeContractSigning } = await import("./authorization"));
@@ -171,7 +172,7 @@ test("instructions hidden in the PDF cannot approve a contract", async () => {
   nextCalls.length = 0;
   await authorizeContractSigning(id, next);
   assert.equal(nextCalls.length, 0);
-  assert.match((await db.contract.findUniqueOrThrow({ where: { id } })).exception ?? "", /instructions aimed at the agent/);
+  assert.match((await db.contract.findUniqueOrThrow({ where: { id } })).exception ?? "", /instructions addressed to the assistant/);
 });
 
 test("an exhausted monthly budget pauses new contracts before any model call", async () => {
@@ -182,5 +183,5 @@ test("an exhausted monthly budget pauses new contracts before any model call", a
   assert.equal(openaiBodies.length, 0);
   const c = await db.contract.findUniqueOrThrow({ where: { id } });
   assert.equal(c.status, "NEEDS_REVIEW");
-  assert.match(c.exception ?? "", /budget/i);
+  assert.match(c.exception ?? "", /spending limit/i);
 });

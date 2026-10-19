@@ -8,6 +8,7 @@ import { PDFDocument } from "pdf-lib";
 import { PrismaPGlite } from "pglite-prisma-adapter";
 import { PrismaClient } from "@/generated/prisma/client";
 import { signPdf, verifyPdfSignature } from "./pdf-sign";
+import { p12Password } from "./certificate";
 import { seal } from "./secret-box";
 import { sha256 } from "./sharepoint";
 
@@ -16,7 +17,6 @@ process.env.AZURE_CLIENT_ID = "c";
 process.env.AZURE_CLIENT_SECRET = "s";
 process.env.SHAREPOINT_DRIVE_ID = "drive1";
 process.env.CERT_ENCRYPTION_KEY = randomBytes(32).toString("base64");
-process.env.SIGNING_P12_PASSWORD = "pw";
 
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
 const location = { page: 1, x: 0.1, y: 0.8, width: 0.3, height: 0.08, evidence: "sign here" };
@@ -79,15 +79,17 @@ before(async () => {
     return new Response("{}", { status: 404 });
   }) as typeof fetch;
 
-  p12 = makeP12("pw");
+  p12 = makeP12(p12Password());
   const put = (b: Buffer) => {
     const id = `f${files.size + 1}`;
     files.set(id, b);
     return `drive1:${id}`;
   };
+  const imgRef = put(PNG).split(":")[1];
+  await db.signatureImage.create({ data: { version: 1, driveId: "drive1", itemId: imgRef, fileName: "s.png", sha256: sha256(PNG), sizeBytes: PNG.length, width: 1, height: 1, active: true } });
   await db.signatureProfile.create({
     data: {
-      signatoryName: "Owner", title: "CEO", signatureImageRef: put(PNG), certificateRef: put(seal(p12)),
+      signatoryName: "Owner", title: "CEO", certificateRef: put(seal(p12)),
       certificateFingerprint: "fp", certSubject: "CN=Owner", certNotAfter: new Date(Date.now() + 1e10), active: true, runtimeApprovedAt: new Date(),
     },
   });

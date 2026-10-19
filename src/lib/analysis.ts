@@ -5,6 +5,7 @@ import { contractExtraction, type ContractExtraction } from "./contract-schema";
 import { getDb } from "./db";
 import { requireEnv } from "./env";
 import { aiMockEnabled, mockExtraction } from "./ai-mock";
+import { isAiEnabled } from "./spending";
 import { audit, setStage } from "./pipeline";
 import { downloadFile } from "./sharepoint";
 
@@ -50,8 +51,8 @@ export async function analyzeContract(contractId: string, next: () => Promise<un
   if (!existing) {
     await setStage(contractId, "REVIEWING", { status: "ANALYZING" });
     const budget = await budgetState();
-    if (budget.exhausted) {
-      await setStage(contractId, "REQUIRES_REVIEW", { status: "NEEDS_REVIEW", exception: "Monthly AI budget exhausted" });
+    if (budget.exhausted || !(await isAiEnabled())) {
+      await setStage(contractId, "REQUIRES_REVIEW", { status: "NEEDS_REVIEW", exception: budget.exhausted ? "The monthly AI spending limit was reached" : "AI processing is paused" });
       return { paused: "budget" };
     }
     const orig = c.documents.find((d) => d.kind === "ORIGINAL");

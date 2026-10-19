@@ -1,6 +1,6 @@
 import { schedules, task } from "@trigger.dev/sdk";
 import { getDb } from "@/lib/db";
-import { createSubscription, renewSubscription } from "@/lib/subscriptions";
+import { createSubscription, ensureSubscription, renewSubscription } from "@/lib/subscriptions";
 import { deltaSync } from "./delta-sync";
 
 // Maintenance only: renews Graph subscriptions. It never discovers contracts.
@@ -15,10 +15,7 @@ export const renewSubscriptions = schedules.task({
     const out: Record<string, string> = {};
     for (const s of due) out[s.graphId] = await renewSubscription(s.graphId);
     const active = await db.graphSubscription.count({ where: { status: "active" } });
-    if (active === 0) {
-      await createSubscription();
-      out.created = "no active subscription";
-    }
+    if (active === 0) out.ensure = await ensureSubscription();
     return out;
   },
 });

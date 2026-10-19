@@ -6,7 +6,7 @@ export const sha256 = (b: Buffer | Uint8Array) => createHash("sha256").update(b)
 // Without SHAREPOINT_DRIVE_ID the signed-in owner's own OneDrive is used.
 const driveRoot = (id: string) => (id === "me" ? "/me/drive" : `/drives/${id}`);
 
-type DriveItem = { id: string; size: number };
+type DriveItem = { id: string; size: number; parentReference?: { driveId?: string } };
 type UploadSession = { uploadUrl: string };
 
 const safe = (s: string) => s.replace(/[\/:*?"<>|#%]/g, "_").slice(0, 120);
@@ -15,7 +15,7 @@ const CHUNK = 320 * 1024 * 10;
 
 export type StoredFile = { driveId: string; itemId: string; sha256: string };
 
-export async function uploadFile(folder: string, name: string, bytes: Buffer): Promise<StoredFile> {
+export async function uploadFile(folder: string, name: string, bytes: Buffer, contentType = "application/pdf"): Promise<StoredFile> {
   const driveId = process.env.SHAREPOINT_DRIVE_ID || "me";
   const path = `${folder.split("/").map(safe).join("/")}/${safe(name)}`;
   const base = `${driveRoot(driveId)}/root:/${encodeURI(path)}:`;
@@ -24,7 +24,7 @@ export async function uploadFile(folder: string, name: string, bytes: Buffer): P
     item = await graph<DriveItem>(`${base}/content`, {
       method: "PUT",
       bytes,
-      headers: { "Content-Type": "application/pdf" },
+      headers: { "Content-Type": contentType },
     });
   } else {
     const { uploadUrl } = await graph<UploadSession>(`${base}/createUploadSession`, {
@@ -43,7 +43,7 @@ export async function uploadFile(folder: string, name: string, bytes: Buffer): P
       if (end === bytes.length) item = (await res.json()) as DriveItem;
     }
   }
-  return { driveId, itemId: item.id, sha256: sha256(bytes) };
+  return { driveId: item.parentReference?.driveId ?? driveId, itemId: item.id, sha256: sha256(bytes) };
 }
 
 export async function downloadFile(ref: { driveId: string; itemId: string }, expectedSha256?: string): Promise<Buffer> {

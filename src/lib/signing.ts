@@ -1,6 +1,6 @@
 import { contractExtraction } from "./contract-schema";
 import { getDb } from "./db";
-import { requireEnv } from "./env";
+import { p12Password } from "./certificate";
 import { isPdf } from "./limits";
 import { audit, setStage } from "./pipeline";
 import { SigningRefused, signPdf, verifyPdfSignature } from "./pdf-sign";
@@ -27,10 +27,12 @@ export async function signContract(contractId: string, next: () => Promise<unkno
   const analysis = await db.contractAnalysis.findFirstOrThrow({ where: { contractId }, orderBy: { createdAt: "desc" } });
   const policy = await db.signingPolicy.findFirst({ where: { active: true }, orderBy: { version: "desc" } });
   const profile = await db.signatureProfile.findFirst({ where: { active: true } });
+  const image = await db.signatureImage.findFirst({ where: { active: true }, orderBy: { version: "desc" } });
   if (
     analysis.decision !== "APPROVE" ||
     !policy?.autonomousSigningEnabled ||
     analysis.policyVersion !== policy.version ||
+    !image ||
     !profile?.runtimeApprovedAt ||
     profile.certNotAfter <= new Date()
   ) {
@@ -47,12 +49,12 @@ export async function signContract(contractId: string, next: () => Promise<unkno
   const pdf = await downloadFile(original, original.sha256);
   if (!isPdf(pdf)) throw new Error("original is not a PDF");
   const p12 = open(await downloadFile(parseRef(profile.certificateRef)));
-  const png = await downloadFile(parseRef(profile.signatureImageRef));
+  const png = await downloadFile(image, image.sha256); // the exact image version that is signed with
 
   let signed: Buffer;
   try {
     signed = await signPdf({
-      pdf, p12, passphrase: requireEnv("SIGNING_P12_PASSWORD"), signaturePng: png, location,
+      pdf, p12, passphrase: p12Password(), signaturePng: png, location,
       signerName: profile.signatoryName, reason: `Sales contract ${c.contractNumber ?? ""}`.trim(),
     });
   } catch (e) {
@@ -75,6 +77,7 @@ export async function signContract(contractId: string, next: () => Promise<unkno
     certSubject: check.certSubject, certSha256: check.certSha256, selfSigned: check.selfSigned,
     selfSignedNotice: check.selfSigned ? "Cryptographically valid; identity is not backed by a trusted CA." : undefined,
     verifiedAt: new Date().toISOString(),
+    signatureImageVersion: image.version, signatureImageSha256: image.sha256,
   };
 
   const stored = await uploadFile(`${storageRoot()}/Signed/${contractId}`, `signed-${c.attachmentName}`, signed);
@@ -85,7 +88,7 @@ export async function signContract(contractId: string, next: () => Promise<unkno
     update: { driveId: stored.driveId, itemId: stored.itemId, sha256: stored.sha256, verification, policyVersion: policy.version },
   });
   await db.contract.update({ where: { id: contractId }, data: { status: "SIGNED" } });
-  await audit(contractId, "signed", { policyVersion: policy.version, certSha256: check.certSha256 });
+  await audit(contractId, "signed", { policyVersion: policy.version, certSha256: check.certSha256, signatureImageVersion: image.version });
   await next();
   return { signed: true };
 }

@@ -77,6 +77,7 @@ model Contract {
   originalDocId  String?
   signedDocId    String?
   conversationId String?
+  senderAddress  String?
   costUsd        Decimal            @default(0) @db.Decimal(10, 4)
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
@@ -101,6 +102,7 @@ model ContractAnalysis {
   decision      String // APPROVE | REVIEW
   reasons       Json
   policyVersion Int?
+  ruleId        String?
   inputTokens   Int      @default(0)
   outputTokens  Int      @default(0)
   costUsd       Decimal  @default(0) @db.Decimal(10, 4)
@@ -123,7 +125,7 @@ model SignatureProfile {
   id                     String    @id @default(cuid())
   signatoryName          String
   title                  String
-  signatureImageRef      String // SharePoint reference
+  signatureImageRef      String? // legacy; the active SignatureImage is used when present
   certificateRef         String // encrypted blob reference, never plaintext
   certificateFingerprint String
   certSubject            String
@@ -199,8 +201,83 @@ model UsageRecord {
 model OAuthConnection {
   id           String   @id @default(cuid())
   userOid      String   @unique
+  accountEmail String?
+  accountName  String?
   refreshToken String
   scope        String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+}
+
+// One row per customer rule. The signing policy versions are compiled from the enabled rules.
+model SigningRule {
+  id              String   @id @default(cuid())
+  name            String
+  enabled         Boolean  @default(true)
+  customerName    String
+  customerDomains String[]
+  contractType    String   @default("any") // any | sales
+  maxAmount       Decimal  @db.Decimal(14, 2)
+  currency        String
+  paymentTerms    String[]
+  deliveryTerms   String[]
+  instructions    String   @default("")
+  replyTo         String[]
+  cc              String[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([customerName])
+}
+
+// Versioned handwritten-signature images. The file lives in the owner's OneDrive; only the reference is stored.
+model SignatureImage {
+  id        String    @id @default(cuid())
+  version   Int       @unique
+  driveId   String
+  itemId    String
+  fileName  String
+  sha256    String
+  sizeBytes Int
+  width     Int
+  height    Int
+  active    Boolean   @default(true)
+  removedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([active])
+}
+
+// People the owner has corresponded with. Names and addresses only, never message bodies.
+model Contact {
+  id                String    @id @default(cuid())
+  email             String    @unique
+  displayName       String
+  organization      String?
+  domain            String
+  sources           String[]
+  outlookContactId  String?
+  lastInteractionAt DateTime?
+  toCount           Int       @default(0)
+  ccCount           Int       @default(0)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([domain])
+}
+
+// One row per recipient of a sent message: the raw material for "frequently copied for this customer".
+model SentRecipient {
+  id             String   @id @default(cuid())
+  messageId      String
+  email          String
+  role           String // to | cc
+  conversationId String?
+  sentAt         DateTime
+  toDomains      String[]
+
+  @@unique([messageId, email, role])
+  @@index([email])
+  @@index([conversationId])
+  @@index([sentAt])
 }

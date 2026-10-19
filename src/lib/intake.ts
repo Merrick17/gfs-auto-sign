@@ -4,7 +4,14 @@ import { MAX_PDF_BYTES, isPdf } from "./limits";
 import { audit, setStage } from "./pipeline";
 import { sha256, storageRoot, uploadFile } from "./sharepoint";
 
-type Message = { id: string; subject?: string; conversationId?: string; hasAttachments: boolean; isDraft?: boolean };
+type Message = {
+  id: string;
+  subject?: string;
+  conversationId?: string;
+  hasAttachments: boolean;
+  isDraft?: boolean;
+  from?: { emailAddress?: { address?: string } };
+};
 type Attachment = { id: string; name: string; size: number; contentType: string; "@odata.type": string; isInline?: boolean };
 
 // Turns one accepted mailbox event into Contract rows and queues analysis for each new PDF.
@@ -21,7 +28,7 @@ export async function processEmailEvent(eventId: string, enqueueAnalysis: (contr
   if (!event.graphMessageId) throw new Error("event has no message id");
 
   const msgPath = `${mailboxPath()}/messages/${encodeURIComponent(event.graphMessageId)}`;
-  const msg = await graph<Message>(`${msgPath}?$select=id,subject,conversationId,hasAttachments,isDraft`);
+  const msg = await graph<Message>(`${msgPath}?$select=id,subject,conversationId,hasAttachments,isDraft,from`);
   if (!msg.hasAttachments || (msg.isDraft && !opts.allowDraft)) {
     await db.processingJob.update({ where: { id: job.id }, data: { stage: "IGNORED", status: "COMPLETED" } });
     return { ignored: "no attachments" };
@@ -55,6 +62,7 @@ export async function processEmailEvent(eventId: string, enqueueAnalysis: (contr
         create: {
           mailboxId: event.mailboxId, graphMessageId: msg.id, attachmentId: a.id,
           attachmentName: a.name, contentHash: hash, conversationId: msg.conversationId,
+          senderAddress: msg.from?.emailAddress?.address?.toLowerCase(),
         },
       });
     }

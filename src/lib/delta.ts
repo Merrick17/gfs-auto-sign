@@ -1,5 +1,5 @@
 import { getDb } from "./db";
-import { requireEnv } from "./env";
+import { mailboxKey } from "./mailbox";
 import { graph, mailboxPath } from "./graph";
 import { messageDedupeKey } from "./graph-notifications";
 import { dispatchEvent } from "./dispatch";
@@ -16,7 +16,7 @@ const KEY = "inboxDeltaLink";
 // Found messages enter the same inbox table (same dedupe key as webhook deliveries) and dispatch path.
 export async function syncInboxDelta() {
   const db = getDb();
-  const mailbox = await db.mailboxConnection.findUniqueOrThrow({ where: { mailboxId: requireEnv("MAILBOX_ID") } });
+  const mailbox = await db.mailboxConnection.findUniqueOrThrow({ where: { mailboxId: await mailboxKey() } });
   const sub = await db.graphSubscription.findFirst({ where: { mailboxId: mailbox.id }, orderBy: { createdAt: "desc" } });
   const saved = await db.appSetting.findUnique({ where: { key: KEY } });
 

@@ -1,47 +1,141 @@
 @import "tailwindcss";
+@import "tw-animate-css";
 
 :root {
-  --background: #f3f3f3;
-  --surface: #ffffff;
-  --foreground: #1a1a1a;
-  --muted: #5f5f5f;
-  --line: #e0e0e0;
-  --accent: #0f6cbd;
-  --ok: #107c10;
-  --warn: #9d5d00;
-  --bad: #c50f1f;
+  --radius: 0.625rem;
+  --background: #f6f5f1;
+  --foreground: #1c2230;
+  --card: #ffffff;
+  --card-foreground: #1c2230;
+  --popover: #ffffff;
+  --popover-foreground: #1c2230;
+  --primary: #1b3a5c;
+  --primary-foreground: #ffffff;
+  --secondary: #eeece6;
+  --secondary-foreground: #1c2230;
+  --muted: #efede7;
+  --muted-foreground: #667085;
+  --accent: #e9eef4;
+  --accent-foreground: #1b3a5c;
+  --destructive: #b42318;
+  --border: #e4e2db;
+  --input: #d7d4ca;
+  --ring: #3b6ea5;
+
+  --success: #0f6b57;
+  --success-soft: #e2f1ec;
+  --warning: #8f5200;
+  --warning-soft: #fbefd9;
+  --danger: #b42318;
+  --danger-soft: #fbe7e4;
+  --info: #2a5a93;
+  --info-soft: #e5edf6;
+
+  --tint-outlook: #2a5a93;
+  --tint-outlook-soft: #e5edf6;
+  --tint-signature: #54449e;
+  --tint-signature-soft: #ebe8f7;
+  --tint-rules: #0f6b57;
+  --tint-rules-soft: #e2f1ec;
+  --tint-people: #8f5200;
+  --tint-people-soft: #fbefd9;
+  --tint-ai: #7a3a9e;
+  --tint-ai-soft: #f1e7f7;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #1f1f1f;
-    --surface: #292929;
-    --foreground: #f5f5f5;
-    --muted: #adadad;
-    --line: #3d3d3d;
-    --accent: #479ef5;
-    --ok: #54b054;
-    --warn: #f0a030;
-    --bad: #f1707b;
+    --background: #16191f;
+    --foreground: #eceff4;
+    --card: #1e222a;
+    --card-foreground: #eceff4;
+    --popover: #1e222a;
+    --popover-foreground: #eceff4;
+    --primary: #8fb4e3;
+    --primary-foreground: #0f1a2b;
+    --secondary: #2a2f39;
+    --secondary-foreground: #eceff4;
+    --muted: #262b34;
+    --muted-foreground: #9aa3b2;
+    --accent: #283140;
+    --accent-foreground: #cfe0f5;
+    --destructive: #f08a80;
+    --border: #2f3541;
+    --input: #3a4150;
+    --ring: #6d9bd1;
+    --success: #5fcfb0;
+    --success-soft: #16312b;
+    --warning: #f0b45c;
+    --warning-soft: #3a2c14;
+    --danger: #f08a80;
+    --danger-soft: #3a1f1c;
+    --info: #8fb4e3;
+    --info-soft: #1c2a3e;
+    --tint-outlook: #8fb4e3;
+    --tint-outlook-soft: #1c2a3e;
+    --tint-signature: #b7a9f0;
+    --tint-signature-soft: #28244a;
+    --tint-rules: #5fcfb0;
+    --tint-rules-soft: #16312b;
+    --tint-people: #f0b45c;
+    --tint-people-soft: #3a2c14;
+    --tint-ai: #d3a6ee;
+    --tint-ai-soft: #33203f;
   }
 }
 
 @theme inline {
+  --font-sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
   --color-background: var(--background);
-  --color-surface: var(--surface);
   --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
-  --color-line: var(--line);
+  --color-muted-foreground: var(--muted-foreground);
   --color-accent: var(--accent);
-  --color-ok: var(--ok);
-  --color-warn: var(--warn);
-  --color-bad: var(--bad);
-  --font-sans: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-tint-outlook: var(--tint-outlook);
+  --color-tint-outlook-soft: var(--tint-outlook-soft);
+  --color-tint-signature: var(--tint-signature);
+  --color-tint-signature-soft: var(--tint-signature-soft);
+  --color-tint-rules: var(--tint-rules);
+  --color-tint-rules-soft: var(--tint-rules-soft);
+  --color-tint-people: var(--tint-people);
+  --color-tint-people-soft: var(--tint-people-soft);
+  --color-tint-ai: var(--tint-ai);
+  --color-tint-ai-soft: var(--tint-ai-soft);
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-sans);
-  font-size: 14px;
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-sans text-[14px] leading-6 antialiased;
+  }
+  h1, h2, h3 {
+    @apply tracking-tight;
+  }
 }
