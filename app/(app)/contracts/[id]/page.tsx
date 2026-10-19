@@ -1,9 +1,10 @@
 import { connection } from "next/server";
+import { requireOwner } from "@/auth";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import type { ContractExtraction } from "@/lib/contract-schema";
 import { getDb } from "@/lib/db";
-import { PdfViewer } from "./pdf-viewer";
+import { PdfViewerLazy } from "./pdf-viewer-lazy";
 
 type Sig = { field: string; ours: boolean; intact: boolean; valid: boolean; trustedByOwnRootOnly?: boolean };
 
@@ -16,6 +17,7 @@ const Row = ({ k, v }: { k: string; v: React.ReactNode }) => (
 
 async function Review({ params }: { params: Promise<{ id: string }> }) {
   await connection();
+  await requireOwner(); // never read data for an unauthenticated request
   const { id } = await params;
   const c = await getDb().contract.findUnique({
     where: { id },
@@ -37,7 +39,7 @@ async function Review({ params }: { params: Promise<{ id: string }> }) {
     <div className="mx-auto grid max-w-[1400px] gap-4 lg:grid-cols-[minmax(0,600px)_1fr]">
       <section className="rounded border border-line bg-surface">
         <h2 className="border-b border-line px-3 py-2 font-medium">{signed ? "Signed document" : "Original document"}</h2>
-        <PdfViewer src={`/api/contracts/${c.id}/document?kind=${signed ? "SIGNED" : "ORIGINAL"}`} />
+        <PdfViewerLazy src={`/api/contracts/${c.id}/document?kind=${signed ? "SIGNED" : "ORIGINAL"}`} />
       </section>
 
       <div className="space-y-4">

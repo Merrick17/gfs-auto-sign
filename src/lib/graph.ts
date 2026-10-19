@@ -11,10 +11,16 @@ export class GraphError extends Error {
   }
 }
 
+// Defense in depth: the Entra app may hold Mail.Send consent, and Microsoft puts every consented scope into the
+// token. This client therefore refuses any endpoint that would send or forward mail.
+const SEND_PATH = /\/(send|sendMail|forward|createForward)(\/|$)/i;
+export class SendBlocked extends Error {}
+
 export async function graph<T = unknown>(
   path: string,
   init: { method?: string; body?: unknown; headers?: Record<string, string>; raw?: boolean; bytes?: Uint8Array } = {},
 ): Promise<T> {
+  if (SEND_PATH.test(path.split("?")[0])) throw new SendBlocked(`Blocked: this application never sends mail (${path.split("?")[0]})`);
   const res = await fetch(path.startsWith("http") ? path : BASE + path, {
     method: init.method ?? "GET",
     headers: {

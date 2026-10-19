@@ -1,4 +1,5 @@
 import { connection } from "next/server";
+import { requireOwner } from "@/auth";
 import { auth as triggerAuth } from "@trigger.dev/sdk";
 import Link from "next/link";
 import { Suspense } from "react";
@@ -32,6 +33,7 @@ const tone = (stage: string) =>
 
 async function Operations({ searchParams }: { searchParams: Promise<{ view?: string }> }) {
   await connection();
+  await requireOwner(); // never read data for an unauthenticated request
   const { view = "all" } = await searchParams;
   const db = getDb();
   const tab = TABS.find((t) => t.key === view) ?? TABS[0];
@@ -43,7 +45,8 @@ async function Operations({ searchParams }: { searchParams: Promise<{ view?: str
       include: { analyses: { orderBy: { createdAt: "desc" }, take: 1 } },
     }),
     Promise.all(TABS.map((t) => db.contract.count({ where: t.where }))),
-    triggerAuth.createPublicToken({ scopes: { read: { tags: ["gfs"] } }, expirationTime: "1h" }),
+    // Without a Trigger.dev key the table still renders; only live updates are off.
+    triggerAuth.createPublicToken({ scopes: { read: { tags: ["gfs"] } }, expirationTime: "1h" }).catch(() => null),
   ]);
 
   return (
@@ -58,7 +61,7 @@ async function Operations({ searchParams }: { searchParams: Promise<{ view?: str
             {t.label} <span className="text-muted">{counts[i]}</span>
           </Link>
         ))}
-        <span className="ml-auto"><LiveRefresh token={token} tag="gfs" /></span>
+        <span className="ml-auto">{token ? <LiveRefresh token={token} tag="gfs" /> : <span className="text-xs text-muted">Live updates off</span>}</span>
       </div>
       <div className="overflow-x-auto rounded border border-line bg-surface">
         <table className="w-full min-w-[760px] text-left">

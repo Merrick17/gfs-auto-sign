@@ -8,7 +8,8 @@ type Message = { id: string; subject?: string; conversationId?: string; hasAttac
 type Attachment = { id: string; name: string; size: number; contentType: string; "@odata.type": string; isInline?: boolean };
 
 // Turns one accepted mailbox event into Contract rows and queues analysis for each new PDF.
-export async function processEmailEvent(eventId: string, enqueueAnalysis: (contractId: string) => Promise<unknown>) {
+// `allowDraft` exists only for the test harness: mail created through Graph is always a draft.
+export async function processEmailEvent(eventId: string, enqueueAnalysis: (contractId: string) => Promise<unknown>, opts: { allowDraft?: boolean } = {}) {
   const db = getDb();
   const event = await db.incomingEvent.findUniqueOrThrow({ where: { id: eventId }, include: { mailbox: true } });
   const job = await db.processingJob.upsert({
@@ -21,7 +22,7 @@ export async function processEmailEvent(eventId: string, enqueueAnalysis: (contr
 
   const msgPath = `${mailboxPath()}/messages/${encodeURIComponent(event.graphMessageId)}`;
   const msg = await graph<Message>(`${msgPath}?$select=id,subject,conversationId,hasAttachments,isDraft`);
-  if (!msg.hasAttachments || msg.isDraft) {
+  if (!msg.hasAttachments || (msg.isDraft && !opts.allowDraft)) {
     await db.processingJob.update({ where: { id: job.id }, data: { stage: "IGNORED", status: "COMPLETED" } });
     return { ignored: "no attachments" };
   }

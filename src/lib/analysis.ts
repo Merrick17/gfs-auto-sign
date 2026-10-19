@@ -4,6 +4,7 @@ import { budgetState, costOf } from "./budget";
 import { contractExtraction, type ContractExtraction } from "./contract-schema";
 import { getDb } from "./db";
 import { requireEnv } from "./env";
+import { aiMockEnabled, mockExtraction } from "./ai-mock";
 import { audit, setStage } from "./pipeline";
 import { downloadFile } from "./sharepoint";
 
@@ -17,6 +18,7 @@ Quote short verbatim evidence with page numbers for key fields. Signature locati
 Report inconsistencies (for example totals that do not add up, conflicting dates or terms), missing fields, unusual commitments (penalties, exclusivity, unlimited liability, extended payment terms), and deviations from the customer history provided.`;
 
 async function extract(client: OpenAI, model: string, pdf: Buffer, name: string, history: unknown) {
+  if (aiMockEnabled()) return { data: mockExtraction(name), i: 1000, o: 400 };
   const res = await client.responses.parse({
     model,
     store: false,
@@ -55,7 +57,7 @@ export async function analyzeContract(contractId: string, next: () => Promise<un
     const orig = c.documents.find((d) => d.kind === "ORIGINAL");
     if (!orig) throw new Error("original document missing");
     const pdf = await downloadFile(orig, c.contentHash);
-    const client = new OpenAI({ apiKey: requireEnv("OPENAI_API_KEY"), maxRetries: 4 });
+    const client = new OpenAI({ apiKey: aiMockEnabled() ? "mock" : requireEnv("OPENAI_API_KEY"), maxRetries: 4 });
 
     const history = await db.contract.findMany({
       where: { customer: c.customer ?? undefined, status: { in: ["SIGNED", "STORED", "DRAFT_READY"] } },

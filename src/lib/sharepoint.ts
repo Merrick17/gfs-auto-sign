@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
-import { requireEnv } from "./env";
 import { graph } from "./graph";
 
 export const sha256 = (b: Buffer | Uint8Array) => createHash("sha256").update(b).digest("hex");
+
+// Without SHAREPOINT_DRIVE_ID the signed-in owner's own OneDrive is used.
+const driveRoot = (id: string) => (id === "me" ? "/me/drive" : `/drives/${id}`);
 
 type DriveItem = { id: string; size: number };
 type UploadSession = { uploadUrl: string };
@@ -14,9 +16,9 @@ const CHUNK = 320 * 1024 * 10;
 export type StoredFile = { driveId: string; itemId: string; sha256: string };
 
 export async function uploadFile(folder: string, name: string, bytes: Buffer): Promise<StoredFile> {
-  const driveId = requireEnv("SHAREPOINT_DRIVE_ID");
+  const driveId = process.env.SHAREPOINT_DRIVE_ID || "me";
   const path = `${folder.split("/").map(safe).join("/")}/${safe(name)}`;
-  const base = `/drives/${driveId}/root:/${encodeURI(path)}:`;
+  const base = `${driveRoot(driveId)}/root:/${encodeURI(path)}:`;
   let item: DriveItem;
   if (bytes.length < SMALL) {
     item = await graph<DriveItem>(`${base}/content`, {
@@ -45,7 +47,7 @@ export async function uploadFile(folder: string, name: string, bytes: Buffer): P
 }
 
 export async function downloadFile(ref: { driveId: string; itemId: string }, expectedSha256?: string): Promise<Buffer> {
-  const buf = Buffer.from(await graph<ArrayBuffer>(`/drives/${ref.driveId}/items/${ref.itemId}/content`, { raw: true }));
+  const buf = Buffer.from(await graph<ArrayBuffer>(`${driveRoot(ref.driveId)}/items/${ref.itemId}/content`, { raw: true }));
   if (expectedSha256 && sha256(buf) !== expectedSha256) throw new Error("SharePoint document hash mismatch");
   return buf;
 }

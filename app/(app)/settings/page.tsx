@@ -1,4 +1,5 @@
 import { connection } from "next/server";
+import { requireOwner } from "@/auth";
 import { Suspense } from "react";
 import { budgetState } from "@/lib/budget";
 import { getDb } from "@/lib/db";
@@ -32,6 +33,7 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
 
 async function Settings() {
   await connection();
+  await requireOwner(); // never read data for an unauthenticated request
   const db = getDb();
   const [subs, policy, profile, budget, usage] = await Promise.all([
     db.graphSubscription.findMany({ orderBy: { createdAt: "desc" }, take: 3 }),
