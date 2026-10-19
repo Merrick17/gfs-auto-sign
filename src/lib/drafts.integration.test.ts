@@ -1,5 +1,5 @@
+import { migrationSql, seedOAuth } from "./test-db";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { after, before, beforeEach, test } from "node:test";
 import { PGlite } from "@electric-sql/pglite";
 import { PrismaPGlite } from "pglite-prisma-adapter";
@@ -72,9 +72,10 @@ function fakeGraph(input: string | URL | Request, init?: RequestInit): Response 
 
 before(async () => {
   pg = new PGlite();
-  await pg.exec(readFileSync("prisma/migrations/0001_init/migration.sql", "utf8"));
+  await pg.exec(migrationSql());
   db = new PrismaClient({ adapter: new PrismaPGlite(pg) });
   (globalThis as unknown as { prisma: PrismaClient }).prisma = db;
+  await seedOAuth(db);
   globalThis.fetch = (async (i: string | URL | Request, init?: RequestInit) => fakeGraph(i, init)) as typeof fetch;
   ({ createReplyDraft } = await import("./drafts"));
 });

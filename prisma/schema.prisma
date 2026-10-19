@@ -194,3 +194,13 @@ model UsageRecord {
 
   @@index([source, createdAt])
 }
+
+// Delegated Microsoft sign-in of the single owner. The refresh token is stored sealed (AES-256-GCM).
+model OAuthConnection {
+  id           String   @id @default(cuid())
+  userOid      String   @unique
+  refreshToken String
+  scope        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}

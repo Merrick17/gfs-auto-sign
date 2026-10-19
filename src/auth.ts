@@ -1,5 +1,7 @@
 import NextAuth from "next-auth";
 import MicrosoftEntraID from "next-auth/providers/microsoft-entra-id";
+import { storeRefreshToken } from "@/lib/graph-token";
+import { SIGN_IN_SCOPES } from "@/lib/scopes";
 
 // Single-owner application: sign-in is refused for anyone but the configured owner.
 export const { handlers, auth, signIn, signOut } = NextAuth({
@@ -8,14 +10,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       clientId: process.env.AZURE_CLIENT_ID,
       clientSecret: process.env.AZURE_CLIENT_SECRET,
       issuer: `https://login.microsoftonline.com/${process.env.AZURE_TENANT_ID}/v2.0`,
+      authorization: { params: { scope: SIGN_IN_SCOPES, prompt: "select_account" } },
     }),
   ],
   session: { strategy: "jwt", maxAge: 8 * 3600 },
   pages: { signIn: "/login" },
   callbacks: {
-    signIn({ profile }) {
+    async signIn({ profile, account }) {
       const oid = (profile as { oid?: string } | undefined)?.oid;
-      return Boolean(oid && process.env.OWNER_OBJECT_ID && oid === process.env.OWNER_OBJECT_ID);
+      if (!oid || !process.env.OWNER_OBJECT_ID || oid !== process.env.OWNER_OBJECT_ID) return false;
+      // Keep the owner's delegated refresh token so background tasks can call Graph without a browser session.
+      if (account?.refresh_token) await storeRefreshToken(oid, account.refresh_token, account.scope);
+      return true;
     },
   },
 });

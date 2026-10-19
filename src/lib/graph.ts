@@ -1,4 +1,4 @@
-import { requireEnv } from "./env";
+import { accessToken } from "./graph-token";
 
 const BASE = "https://graph.microsoft.com/v1.0";
 
@@ -11,28 +11,6 @@ export class GraphError extends Error {
   }
 }
 
-let cached: { token: string; exp: number } | null = null;
-
-async function token(): Promise<string> {
-  if (cached && cached.exp > Date.now() + 60_000) return cached.token;
-  const res = await fetch(
-    `https://login.microsoftonline.com/${requireEnv("AZURE_TENANT_ID")}/oauth2/v2.0/token`,
-    {
-      method: "POST",
-      body: new URLSearchParams({
-        client_id: requireEnv("AZURE_CLIENT_ID"),
-        client_secret: requireEnv("AZURE_CLIENT_SECRET"),
-        scope: "https://graph.microsoft.com/.default",
-        grant_type: "client_credentials",
-      }),
-    },
-  );
-  if (!res.ok) throw new GraphError(res.status, null, `token request failed: ${res.status}`);
-  const j = (await res.json()) as { access_token: string; expires_in: number };
-  cached = { token: j.access_token, exp: Date.now() + j.expires_in * 1000 };
-  return j.access_token;
-}
-
 export async function graph<T = unknown>(
   path: string,
   init: { method?: string; body?: unknown; headers?: Record<string, string>; raw?: boolean; bytes?: Uint8Array } = {},
@@ -40,7 +18,7 @@ export async function graph<T = unknown>(
   const res = await fetch(path.startsWith("http") ? path : BASE + path, {
     method: init.method ?? "GET",
     headers: {
-      Authorization: `Bearer ${await token()}`,
+      Authorization: `Bearer ${await accessToken()}`,
       ...(init.body !== undefined ? { "Content-Type": "application/json" } : {}),
       ...init.headers,
     },
@@ -56,4 +34,5 @@ export async function graph<T = unknown>(
   return (res.status === 204 ? undefined : await res.json()) as T;
 }
 
-export const mailboxPath = () => `/users/${encodeURIComponent(requireEnv("MAILBOX_ID"))}`;
+// Delegated access: the signed-in owner's own mailbox.
+export const mailboxPath = () => "/me";

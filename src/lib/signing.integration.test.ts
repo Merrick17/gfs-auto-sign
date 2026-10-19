@@ -1,6 +1,6 @@
+import { migrationSql, seedOAuth } from "./test-db";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
 import { after, before, test } from "node:test";
 import { PGlite } from "@electric-sql/pglite";
 import forge from "node-forge";
@@ -60,9 +60,10 @@ const json = (b: unknown) => new Response(JSON.stringify(b), { headers: { "conte
 
 before(async () => {
   pg = new PGlite();
-  await pg.exec(readFileSync("prisma/migrations/0001_init/migration.sql", "utf8"));
+  await pg.exec(migrationSql());
   db = new PrismaClient({ adapter: new PrismaPGlite(pg) });
   (globalThis as unknown as { prisma: PrismaClient }).prisma = db;
+  await seedOAuth(db);
 
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = decodeURIComponent(String(input instanceof Request ? input.url : input));

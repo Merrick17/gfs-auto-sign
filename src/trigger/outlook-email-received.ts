@@ -1,5 +1,6 @@
 import { task } from "@trigger.dev/sdk";
 import { GraphError } from "@/lib/graph";
+import { AuthRequired } from "@/lib/graph-token";
 import { processEmailEvent } from "@/lib/intake";
 import { analyzeSalesContract } from "./analyze-sales-contract";
 
@@ -8,6 +9,7 @@ export const outlookEmailReceived = task({
   queue: { name: "email-intake", concurrencyLimit: 5 },
   retry: { maxAttempts: 5, factor: 2, minTimeoutInMs: 2000, maxTimeoutInMs: 60000 },
   catchError: ({ error }) => {
+    if (error instanceof AuthRequired) return { skipRetrying: true };
     if (error instanceof GraphError && error.retryAfterMs) return { retryAt: new Date(Date.now() + error.retryAfterMs) };
     if (error instanceof GraphError && !error.retryable) return { skipRetrying: true };
   },

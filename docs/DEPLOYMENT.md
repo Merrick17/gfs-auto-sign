@@ -3,18 +3,19 @@
 Status: code complete up to the point where credentials are required. Nothing here has been run against
 real Microsoft 365, Neon, Trigger.dev or OpenAI yet. Signing is pure Node (`src/lib/pdf-sign.ts`: pdf-lib + @signpdf + node-forge) and is covered by local tests: it signs, places the visible image, verifies the CMS signature independently and detects tampering.
 
-## 1. Entra ID app registration
-Two registrations are simplest, but one works.
-- API permissions, **Application**, admin consent granted:
-  - `Mail.Read` (read incoming mail, create subscription)
-  - `Mail.ReadWrite` (create reply drafts and attach files; drafts are mail writes)
-  - `Sites.Selected` (grant the app access to the single GFS SharePoint site only; see step below)
-- **Do not add `Mail.Send`.** The code never calls `/send`.
-- Restrict the app to one mailbox with an Exchange Application Access Policy
-  (`New-ApplicationAccessPolicy -AccessRight RestrictAccess ...`) so `Mail.ReadWrite` cannot touch other mailboxes.
-- Grant the site: `POST /sites/{siteId}/permissions` with role `write` for this app.
-- Owner sign-in (delegated): add redirect URI `https://<app>/api/auth/callback/microsoft-entra-id`. Put the owner's
-  object id in `OWNER_OBJECT_ID`; anyone else is refused.
+## 1. Microsoft sign-in (delegated OAuth, existing "GFS OP Hub" app)
+The app signs the owner in once and keeps an encrypted refresh token (table `OAuthConnection`, AES-256-GCM with
+`CERT_ENCRYPTION_KEY`). Background tasks exchange it for short-lived Graph tokens. No admin consent and no
+application permissions are needed.
+- Uses the app registration behind `AZURE_TENANT_ID` / `AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET`.
+- Requested scopes (src/lib/scopes.ts): `Mail.Read`, `Mail.ReadWrite`, `Files.ReadWrite`, `offline_access`.
+  **`Mail.Send` is never requested**, even though the registration holds consent for it, so tokens issued to this
+  app cannot send mail. The code never calls a send endpoint.
+- Add these redirect URIs (Web) to the registration: `https://<app>/api/auth/callback/microsoft-entra-id` and, for
+  local work, `http://localhost:3000/api/auth/callback/microsoft-entra-id`.
+- Only `OWNER_OBJECT_ID` can sign in. Mail is the signed-in owner's own mailbox (`/me`).
+- If the sign-in is revoked or expires, tasks stop with a non-retryable error until the owner signs in again.
+- Graph mail subscriptions work with delegated tokens and expire after at most ~2.9 days; renewal is automatic.
 
 ## 2. Neon
 Create a project. `DATABASE_URL` = pooled connection string, `DATABASE_URL_UNPOOLED` = direct (`neon env pull` writes both to `.env.local`). Then:
@@ -29,8 +30,7 @@ Create a project. `DATABASE_URL` = pooled connection string, `DATABASE_URL_UNPOO
 
 ## 4. Vercel
 Import the repo (Node runtime, a plan that permits commercial use: Pro). Set `DATABASE_URL`, `AZURE_*`,
-`AUTH_SECRET`, `OWNER_OBJECT_ID`, `TRIGGER_SECRET_KEY`, `APP_BASE_URL`, `SHAREPOINT_DRIVE_ID`, `MAILBOX_ID`,
-`CERT_ENCRYPTION_KEY`. Deploy. The webhook is `POST /api/webhooks/microsoft-graph`.
+`AUTH_SECRET`, `OWNER_OBJECT_ID`, `TRIGGER_SECRET_KEY`, `APP_BASE_URL`, `SHAREPOINT_DRIVE_ID`, `CERT_ENCRYPTION_KEY`. Deploy. The webhook is `POST /api/webhooks/microsoft-graph`.
 
 ## 5. Connect the mailbox
 Sign in, open Settings, press **Create Graph subscription**. The app registers a `created` subscription on the

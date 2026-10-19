@@ -1,5 +1,5 @@
+import { migrationSql, seedOAuth } from "./test-db";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { after, before, test } from "node:test";
 import { PGlite } from "@electric-sql/pglite";
 import { PrismaPGlite } from "pglite-prisma-adapter";
@@ -12,7 +12,8 @@ process.env.AZURE_CLIENT_ID = "c";
 process.env.AZURE_CLIENT_SECRET = "s";
 process.env.SHAREPOINT_DRIVE_ID = "drive1";
 process.env.OPENAI_API_KEY = "sk-test";
-process.env.CERT_ENCRYPTION_KEY = "do-not-leak-this-key";
+const LEAK_MARKER = Buffer.alloc(32, 7).toString("base64");
+process.env.CERT_ENCRYPTION_KEY = LEAK_MARKER;
 process.env.PRICE_IN_GPT_6_LUNA = "1";
 process.env.PRICE_OUT_GPT_6_LUNA = "2";
 process.env.PRICE_IN_GPT_6_1_SOL = "10";
@@ -43,9 +44,10 @@ const next = async () => void nextCalls.push("x");
 
 before(async () => {
   pg = new PGlite();
-  await pg.exec(readFileSync("prisma/migrations/0001_init/migration.sql", "utf8"));
+  await pg.exec(migrationSql());
   db = new PrismaClient({ adapter: new PrismaPGlite(pg) });
   (globalThis as unknown as { prisma: PrismaClient }).prisma = db;
+  await seedOAuth(db);
 
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input instanceof Request ? input.url : input);
@@ -104,7 +106,7 @@ test("routine contract: one primary-model call, no secrets sent, structured resu
   assert.equal(openaiBodies.length, 1);
   assert.equal(openaiBodies[0].model, "gpt-6-luna");
   assert.equal(openaiBodies[0].store, false);
-  assert.ok(!JSON.stringify(openaiBodies[0]).includes("do-not-leak-this-key"));
+  assert.ok(!JSON.stringify(openaiBodies[0]).includes(LEAK_MARKER));
   assert.deepEqual(openaiBodies[0].input[0].content.map((c) => c.type), ["input_file", "input_text"]);
   const c = await db.contract.findUniqueOrThrow({ where: { id } });
   assert.equal(c.customer, "Acme GmbH");
