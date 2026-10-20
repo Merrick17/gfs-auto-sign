@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    ".trigger/**",
+    "artifacts/**",
+    // Vendored React Bits components (installed with the shadcn CLI); updated by re-adding, not by hand.
+    "src/components/reactbits/*.tsx",
   ]),
 ]);
 

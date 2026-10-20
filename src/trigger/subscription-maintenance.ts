@@ -6,7 +6,7 @@ import { deltaSync } from "./delta-sync";
 // Maintenance only: renews Graph subscriptions. It never discovers contracts.
 export const renewSubscriptions = schedules.task({
   id: "renew-graph-subscriptions",
-  cron: "0 */6 * * *",
+  cron: { pattern: "0 */6 * * *", window: "30m" },
   run: async () => {
     const db = getDb();
     const due = await db.graphSubscription.findMany({

@@ -49,7 +49,7 @@ async function upsertContacts(rows: Row[]) {
                   ${part.map((r) => domainOf(r.email))}::text[], ${part.map((r) => r.source)}::text[], ${part.map((r) => r.outlookId ?? "")}::text[])
         AS t(e, n, o, d, s, oid)
       ON CONFLICT (email) DO UPDATE SET
-        "displayName" = CASE WHEN EXCLUDED.sources[1] = 'outlook-contact' OR "Contact"."displayName" = "Contact".email
+        "displayName" = CASE WHEN (EXCLUDED.sources[1] = 'outlook-contact' AND EXCLUDED."displayName" <> EXCLUDED.email) OR "Contact"."displayName" = "Contact".email
                              THEN EXCLUDED."displayName" ELSE "Contact"."displayName" END,
         organization = COALESCE(EXCLUDED.organization, "Contact".organization),
         "outlookContactId" = COALESCE(EXCLUDED."outlookContactId", "Contact"."outlookContactId"),
@@ -85,14 +85,17 @@ type SentMessage = {
 
 const WATERMARK = "contactsSentWatermark";
 
-// First run reads the newest `maxMessages`; later runs only read what was sent since the last run.
+// First run reads the newest `maxMessages`. Later runs read forward from the watermark, oldest first, so a backlog larger than
+// one run is worked off over the next runs instead of leaving a gap. The filter is inclusive (`ge`) because Graph timestamps
+// have one-second resolution; messages already stored are skipped as duplicates.
 export async function syncSentItems(ownerEmail: string | null, maxMessages = 600) {
   const db = getDb();
   const mark = await db.appSetting.findUnique({ where: { key: WATERMARK } });
   const since = mark ? String(mark.value) : null;
-  const filter = since ? `&$filter=${encodeURIComponent(`sentDateTime gt ${since}`)}` : "";
+  const filter = since ? `&$filter=${encodeURIComponent(`sentDateTime ge ${since}`)}` : "";
+  const order = since ? "asc" : "desc";
   let url: string | undefined =
-    `/me/mailFolders('SentItems')/messages?$select=id,conversationId,sentDateTime,toRecipients,ccRecipients&$orderby=sentDateTime desc&$top=100${filter}`;
+    `/me/mailFolders('SentItems')/messages?$select=id,conversationId,sentDateTime,toRecipients,ccRecipients&$orderby=sentDateTime ${order}&$top=100${filter}`;
   const owner = ownerEmail ? normEmail(ownerEmail) : "";
   const links: Prisma.SentRecipientCreateManyInput[] = [];
   const people: Row[] = [];
@@ -102,14 +105,14 @@ export async function syncSentItems(ownerEmail: string | null, maxMessages = 600
     const page: Page<SentMessage> = await g(url);
     for (const m of page.value) {
       seen++;
-      newest ??= m.sentDateTime;
+      if (!newest || m.sentDateTime > newest) newest = m.sentDateTime;
       const to = (m.toRecipients ?? []).flatMap((r) => (r.emailAddress?.address ? [{ ...r.emailAddress, address: normEmail(r.emailAddress.address) }] : []));
       const cc = (m.ccRecipients ?? []).flatMap((r) => (r.emailAddress?.address ? [{ ...r.emailAddress, address: normEmail(r.emailAddress.address) }] : []));
       const toDomains = [...new Set(to.map((r) => domainOf(r.address)).filter(Boolean))];
       for (const [role, list] of [["to", to], ["cc", cc]] as const)
         for (const r of list) {
           if (r.address === owner) continue;
-          people.push({ email: r.address, name: r.name && r.name !== r.address ? r.name : "", source: "sent" });
+          people.push({ email: r.address, name: r.name && normEmail(r.name) !== r.address ? r.name : "", source: "sent" });
           links.push({ messageId: m.id, email: r.address, role, conversationId: m.conversationId, sentAt: new Date(m.sentDateTime), toDomains });
         }
     }
@@ -167,91 +170,16 @@ export async function indexStatus() {
   return { contacts, syncedAt: v?.at ?? null, outlookContacts: v?.outlookContacts ?? null, sent: v?.sent ?? null };
 }
 
-export type ContactSuggestion = {
-  email: string;
-  name: string;
-  organization: string | null;
-  labels: string[];
-  score: number;
-};
+export type ContactSuggestion = { email: string; name: string; organization: string | null };
 
-// What the index knows about this customer: its email domains and the conversations its contracts arrived in.
-async function customerLinks(customer: string) {
-  const db = getDb();
-  const [rules, contracts] = await Promise.all([
-    db.signingRule.findMany({ where: { customerName: { equals: customer, mode: "insensitive" } }, select: { customerDomains: true } }),
-    db.contract.findMany({ where: { customer: { equals: customer, mode: "insensitive" } }, select: { conversationId: true, senderAddress: true } }),
-  ]);
-  const domains = new Set<string>(rules.flatMap((r) => r.customerDomains.map((d) => d.toLowerCase())));
-  for (const c of contracts) if (c.senderAddress) domains.add(domainOf(c.senderAddress));
-  domains.delete("");
-  const conversations = [...new Set(contracts.map((c) => c.conversationId).filter((x): x is string => Boolean(x)))];
-  return { domains: [...domains], conversations };
-}
-
-export async function searchContacts(opts: { query?: string; customer?: string; exclude?: string[]; limit?: number }): Promise<ContactSuggestion[]> {
-  const db = getDb();
+// Offline fallback for suggestions when Microsoft Graph can't be reached.
+export async function searchContacts(opts: { query?: string; exclude?: string[]; limit?: number }): Promise<ContactSuggestion[]> {
   const q = (opts.query ?? "").trim();
-  const exclude = new Set((opts.exclude ?? []).map(normEmail));
-  const links = opts.customer ? await customerLinks(opts.customer) : { domains: [], conversations: [] };
-
-  // Who was involved in correspondence with this customer, and in which role.
-  const linked = new Map<string, { to: number; cc: number }>();
-  if (links.domains.length || links.conversations.length) {
-    const rows = await db.sentRecipient.findMany({
-      where: { OR: [...(links.conversations.length ? [{ conversationId: { in: links.conversations } }] : []), ...(links.domains.length ? [{ toDomains: { hasSome: links.domains } }] : [])] },
-      select: { email: true, role: true },
-      take: 5000,
-    });
-    for (const r of rows) {
-      const cur = linked.get(r.email) ?? { to: 0, cc: 0 };
-      if (r.role === "cc") cur.cc++;
-      else cur.to++;
-      linked.set(r.email, cur);
-    }
-  }
-
-  const textMatch: Prisma.ContactWhereInput = q
-    ? { OR: ["displayName", "email", "organization", "domain"].map((f) => ({ [f]: { contains: q, mode: "insensitive" } })) as Prisma.ContactWhereInput[] }
-    : {};
-  const [byText, byLink] = await Promise.all([
-    db.contact.findMany({ where: textMatch, orderBy: [{ ccCount: "desc" }, { toCount: "desc" }], take: 60 }),
-    q || linked.size === 0 && links.domains.length === 0
-      ? Promise.resolve([])
-      : db.contact.findMany({ where: { OR: [{ email: { in: [...linked.keys()] } }, ...(links.domains.length ? [{ domain: { in: links.domains } }] : [])] }, take: 60 }),
-  ]);
-
-  const seen = new Set<string>();
-  const out: ContactSuggestion[] = [];
-  for (const c of [...byLink, ...byText]) {
-    if (seen.has(c.email) || exclude.has(c.email)) continue;
-    seen.add(c.email);
-    const l = linked.get(c.email);
-    const labels: string[] = [];
-    let score = 0;
-    // For a CC picker, the people the owner has actually copied on this customer's mail come first.
-    if (l && l.cc >= 2) {
-      labels.push("Frequently copied for this customer");
-      score += 1200 + l.cc;
-    } else if (l && l.cc === 1) {
-      labels.push("Copied once on this customer's emails");
-      score += 900;
-    }
-    if (links.domains.includes(c.domain)) {
-      labels.push("From this customer's company");
-      score += 800;
-    }
-    if (l && l.to > 0 && !labels.length) {
-      labels.push("Emailed about this customer");
-      score += 500;
-    }
-    if (c.sources.includes("outlook-contact")) labels.push("Saved Outlook contact");
-    if (c.toCount + c.ccCount > 0) labels.push("Previously emailed");
-    if (c.sources.includes("directory")) labels.push("Company directory");
-    score += Math.min(c.toCount + c.ccCount, 50) * 5;
-    if (c.lastInteractionAt) score += Math.max(0, 30 - (Date.now() - c.lastInteractionAt.getTime()) / 86_400_000);
-    out.push({ email: c.email, name: c.displayName, organization: c.organization, labels, score });
-  }
-  out.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
-  return out.slice(0, opts.limit ?? 12);
+  const exclude = (opts.exclude ?? []).map(normEmail);
+  const where: Prisma.ContactWhereInput = {
+    ...(q ? { OR: ["displayName", "email", "organization", "domain"].map((f) => ({ [f]: { contains: q, mode: "insensitive" } })) as Prisma.ContactWhereInput[] } : {}),
+    ...(exclude.length ? { email: { notIn: exclude } } : {}),
+  };
+  const rows = await getDb().contact.findMany({ where, orderBy: [{ ccCount: "desc" }, { toCount: "desc" }, { displayName: "asc" }], take: opts.limit ?? 12 });
+  return rows.map((c) => ({ email: c.email, name: c.displayName, organization: c.organization }));
 }

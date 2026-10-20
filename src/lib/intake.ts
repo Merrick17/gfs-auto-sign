@@ -1,7 +1,7 @@
 import { getDb } from "./db";
 import { graph, mailboxPath } from "./graph";
 import { MAX_PDF_BYTES, isPdf } from "./limits";
-import { audit, setStage } from "./pipeline";
+import { audit } from "./pipeline";
 import { sha256, storageRoot, uploadFile } from "./sharepoint";
 
 type Message = {
@@ -10,13 +10,14 @@ type Message = {
   conversationId?: string;
   hasAttachments: boolean;
   isDraft?: boolean;
-  from?: { emailAddress?: { address?: string } };
+  receivedDateTime?: string;
+  from?: { emailAddress?: { address?: string; name?: string } };
 };
 type Attachment = { id: string; name: string; size: number; contentType: string; "@odata.type": string; isInline?: boolean };
 
-// Turns one accepted mailbox event into Contract rows and queues analysis for each new PDF.
+// Step 1 (email received): turns one accepted mailbox event into one record per new PDF and queues step 2 for each.
 // `allowDraft` exists only for the test harness: mail created through Graph is always a draft.
-export async function processEmailEvent(eventId: string, enqueueAnalysis: (contractId: string) => Promise<unknown>, opts: { allowDraft?: boolean } = {}) {
+export async function processEmailEvent(eventId: string, enqueueProcessing: (contractId: string) => Promise<unknown>, opts: { allowDraft?: boolean } = {}) {
   const db = getDb();
   const event = await db.incomingEvent.findUniqueOrThrow({ where: { id: eventId }, include: { mailbox: true } });
   const job = await db.processingJob.upsert({
@@ -28,7 +29,7 @@ export async function processEmailEvent(eventId: string, enqueueAnalysis: (contr
   if (!event.graphMessageId) throw new Error("event has no message id");
 
   const msgPath = `${mailboxPath()}/messages/${encodeURIComponent(event.graphMessageId)}`;
-  const msg = await graph<Message>(`${msgPath}?$select=id,subject,conversationId,hasAttachments,isDraft,from`);
+  const msg = await graph<Message>(`${msgPath}?$select=id,subject,conversationId,hasAttachments,isDraft,from,receivedDateTime`);
   if (!msg.hasAttachments || (msg.isDraft && !opts.allowDraft)) {
     await db.processingJob.update({ where: { id: job.id }, data: { stage: "IGNORED", status: "COMPLETED" } });
     return { ignored: "no attachments" };
@@ -63,8 +64,12 @@ export async function processEmailEvent(eventId: string, enqueueAnalysis: (contr
           mailboxId: event.mailboxId, graphMessageId: msg.id, attachmentId: a.id,
           attachmentName: a.name, contentHash: hash, conversationId: msg.conversationId,
           senderAddress: msg.from?.emailAddress?.address?.toLowerCase(),
+          senderName: msg.from?.emailAddress?.name?.slice(0, 200) || null,
+          subject: msg.subject?.slice(0, 500) ?? null,
+          receivedAt: msg.receivedDateTime ? new Date(msg.receivedDateTime) : new Date(),
         },
       });
+      await audit(contract.id, "received", { attachments: pdfs.length });
     }
     // Original is stored once; the DocumentRef unique key makes retries no-ops.
     const hasOriginal = await db.documentRef.findUnique({ where: { contractId_kind: { contractId: contract.id, kind: "ORIGINAL" } } });
@@ -76,19 +81,18 @@ export async function processEmailEvent(eventId: string, enqueueAnalysis: (contr
         update: {},
       });
     }
-    await setStage(contract.id, "EMAIL_RECEIVED", { status: "RECEIVED" });
     created.push(contract.id);
   }
 
   for (const id of created) {
     const c = await db.contract.findUniqueOrThrow({ where: { id } });
     if (c.status !== "RECEIVED") continue; // already advanced by an earlier attempt
-    await enqueueAnalysis(id);
+    await enqueueProcessing(id);
   }
 
   await db.processingJob.update({
     where: { id: job.id },
-    data: { stage: created.length ? "DISPATCHED" : "IGNORED", status: "COMPLETED", detail: { contracts: created.length } },
+    data: { stage: created.length ? "DISPATCHED" : "IGNORED", status: "COMPLETED", detail: { documents: created.length } },
   });
   return { contracts: created };
 }

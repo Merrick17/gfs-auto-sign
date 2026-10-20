@@ -1,0 +1,10 @@
+.arena
+.next
+.next-qa
+.next-qa-agent
+.trigger
+artifacts
+secrets
+.dev.log
+.claude
+node_modules

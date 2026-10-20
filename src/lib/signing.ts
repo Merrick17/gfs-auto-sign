@@ -1,94 +1,76 @@
-import { contractExtraction } from "./contract-schema";
 import { getDb } from "./db";
-import { p12Password } from "./certificate";
 import { isPdf } from "./limits";
-import { audit, setStage } from "./pipeline";
-import { SigningRefused, signPdf, verifyPdfSignature } from "./pdf-sign";
-import { open } from "./secret-box";
+import { audit, needsAttention, setStatus } from "./pipeline";
+import { parsePlacement, type Placement } from "./placement";
+import { SigningRefused, stampSignature } from "./pdf-sign";
+import { ruleFor } from "./sender-rules";
+import { getSigningSettings } from "./settings";
+import { getActiveSignatureImage, readSignatureImage } from "./signature-image";
 import { downloadFile, storageRoot, uploadFile } from "./sharepoint";
 
-const parseRef = (ref: string) => {
-  const [driveId, itemId] = ref.split(":");
-  return { driveId, itemId };
-};
+// Who allowed this signature: the owner's standing authorization for this sender, or the owner just now.
+export type SignAuthority = { by: "auto" } | { by: "owner"; actor: string };
 
-// `next` queues the storage stage; it is called only when a verified signed document exists.
-export async function signContract(contractId: string, next: () => Promise<unknown>) {
+export class NotAllowed extends Error {}
+
+// Adds the signature image and stores the signed copy next to the original. Idempotent: a document is signed once.
+// Authorization is checked here again, independent of whoever asked for the signature.
+export async function signDocument(contractId: string, authority: SignAuthority, placementInput?: Placement) {
   const db = getDb();
   const c = await db.contract.findUniqueOrThrow({ where: { id: contractId }, include: { documents: true } });
+  if (c.documents.some((d) => d.kind === "SIGNED")) return { signed: true, already: true };
 
-  // A signed document already exists: never sign the same version twice.
-  if (c.documents.some((d) => d.kind === "SIGNED")) {
-    await next();
-    return { skipped: "already signed" };
-  }
-
-  // Authorization is re-checked here, independent of the upstream task.
-  const analysis = await db.contractAnalysis.findFirstOrThrow({ where: { contractId }, orderBy: { createdAt: "desc" } });
-  const policy = await db.signingPolicy.findFirst({ where: { active: true }, orderBy: { version: "desc" } });
-  const profile = await db.signatureProfile.findFirst({ where: { active: true } });
-  const image = await db.signatureImage.findFirst({ where: { active: true }, orderBy: { version: "desc" } });
-  if (
-    analysis.decision !== "APPROVE" ||
-    !policy?.autonomousSigningEnabled ||
-    analysis.policyVersion !== policy.version ||
-    !image ||
-    !profile?.runtimeApprovedAt ||
-    profile.certNotAfter <= new Date()
-  ) {
-    await setStage(contractId, "REQUIRES_REVIEW", { status: "NEEDS_REVIEW", exception: "Authorization no longer valid at signing time" });
+  const placement = parsePlacement(placementInput ?? c.placement);
+  if (!placement) throw new NotAllowed("No signature position");
+  const image = await getActiveSignatureImage();
+  if (!image) {
+    await needsAttention(contractId, "SETUP", "Add your signature image in Settings to sign this document.");
     return { signed: false };
   }
-  const extracted = contractExtraction.parse(analysis.result);
-  const location = extracted.gfsSignatureLocations[0];
+  if (authority.by === "auto") {
+    const [settings, rule] = await Promise.all([getSigningSettings(), ruleFor(c.senderAddress)]);
+    if (!settings.autoSign || !rule?.autoSign) {
+      await needsAttention(contractId, "APPROVAL", "Automatic signing was turned off before this document was signed. Check and approve.");
+      return { signed: false };
+    }
+  }
 
-  await setStage(contractId, "SIGNING", { status: "SIGNING" });
+  await db.contract.update({ where: { id: contractId }, data: { status: "SIGNING", attention: null, exception: null, placement } });
   const original = c.documents.find((d) => d.kind === "ORIGINAL");
   if (!original) throw new Error("original missing");
-
   const pdf = await downloadFile(original, original.sha256);
   if (!isPdf(pdf)) throw new Error("original is not a PDF");
-  const p12 = open(await downloadFile(parseRef(profile.certificateRef)));
-  const png = await downloadFile(image, image.sha256); // the exact image version that is signed with
+  const png = await readSignatureImage(image); // the exact image version used is recorded below
 
   let signed: Buffer;
   try {
-    signed = await signPdf({
-      pdf, p12, passphrase: p12Password(), signaturePng: png, location,
-      signerName: profile.signatoryName, reason: `Sales contract ${c.contractNumber ?? ""}`.trim(),
-    });
+    signed = await stampSignature({ pdf, image: png, placement });
   } catch (e) {
     if (e instanceof SigningRefused) {
-      // Cannot be signed safely (existing signatures, encryption, bad box): escalate, never retry.
-      await setStage(contractId, "REQUIRES_REVIEW", { status: "NEEDS_REVIEW", exception: `Signing stopped: ${e.message}` });
+      await needsAttention(contractId, "REVIEW", e.message);
       return { signed: false, reason: e.message };
     }
     throw e;
   }
 
-  await setStage(contractId, "VERIFYING", { status: "SIGNING" });
-  const check = verifyPdfSignature(signed);
-  if (!check.intact || !check.valid || check.certExpired) {
-    await setStage(contractId, "REQUIRES_REVIEW", { status: "NEEDS_REVIEW", exception: "Signature failed independent verification" });
-    return { signed: false, reason: "verification failed" };
-  }
-  const verification = {
-    signatures: [{ field: "GFS", ours: true, intact: check.intact, valid: check.valid }],
-    certSubject: check.certSubject, certSha256: check.certSha256, selfSigned: check.selfSigned,
-    selfSignedNotice: check.selfSigned ? "Cryptographically valid; identity is not backed by a trusted CA." : undefined,
-    verifiedAt: new Date().toISOString(),
-    signatureImageVersion: image.version, signatureImageSha256: image.sha256,
-  };
-
-  const stored = await uploadFile(`${storageRoot()}/Signed/${contractId}`, `signed-${c.attachmentName}`, signed);
+  const stored = await uploadFile(`${storageRoot()}/Signed/${contractId}`, signedName(c.attachmentName), signed);
   await db.documentRef.upsert({
     where: { contractId_kind: { contractId, kind: "SIGNED" } },
-    create: { contractId, kind: "SIGNED", driveId: stored.driveId, itemId: stored.itemId, sha256: stored.sha256, verification, policyVersion: policy.version },
+    create: { contractId, kind: "SIGNED", driveId: stored.driveId, itemId: stored.itemId, sha256: stored.sha256 },
     // A retry after upload but before this write re-signs; the ref must follow the file now at that path.
-    update: { driveId: stored.driveId, itemId: stored.itemId, sha256: stored.sha256, verification, policyVersion: policy.version },
+    update: { driveId: stored.driveId, itemId: stored.itemId, sha256: stored.sha256 },
   });
-  await db.contract.update({ where: { id: contractId }, data: { status: "SIGNED" } });
-  await audit(contractId, "signed", { policyVersion: policy.version, certSha256: check.certSha256, signatureImageVersion: image.version });
-  await next();
+  await setStatus(contractId, "SIGNED");
+  await audit(
+    contractId,
+    "signed",
+    { by: authority.by, placement, signatureImageVersion: image.version, signatureImageSha256: image.sha256 },
+    authority.by === "owner" ? authority.actor : "system",
+  );
   return { signed: true };
 }
+
+export const signedName = (name: string) => {
+  const base = name.replace(/\.pdf$/i, "");
+  return `${base} (signed).pdf`;
+};

@@ -62,91 +62,63 @@ model ProcessingJob {
   updatedAt DateTime      @updatedAt
 }
 
+// One PDF attachment of one email. Named Contract for history; the interface calls it a document.
 model Contract {
   id             String             @id @default(cuid())
   mailboxId      String
   graphMessageId String
   attachmentId   String
   attachmentName String
-  contentHash    String // sha256 of original PDF
-  contractNumber String?
-  revision       String             @default("0")
-  customer       String?
-  status         String             @default("RECEIVED") // RECEIVED|ANALYZING|NEEDS_REVIEW|AUTHORIZED|SIGNING|SIGNED|STORED|DRAFT_READY|FAILED
-  stage          String             @default("EMAIL_RECEIVED")
-  originalDocId  String?
-  signedDocId    String?
-  conversationId String?
+  contentHash    String // sha256 of the original PDF
+  subject        String?
   senderAddress  String?
-  costUsd        Decimal            @default(0) @db.Decimal(10, 4)
+  senderName     String?
+  receivedAt     DateTime?
+  conversationId String?
+  // RECEIVED | NEEDS_ATTENTION | SKIPPED | SIGNING | SIGNED | DRAFTING | DRAFT_SAVED | FAILED
+  status         String             @default("RECEIVED")
+  attention      String? // PLACEMENT | APPROVAL | REVIEW | SETUP, set while status is NEEDS_ATTENTION
+  exception      String? // one plain sentence for the owner
+  placement      Json? // where the signature went or will go: { page, x, y, width, height } as page fractions
+  pageCount      Int?
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
   analyses       ContractAnalysis[]
   documents      DocumentRef[]
   draft          OutlookDraft?
   audits         AuditEvent[]
-  exception      String?
 
   // Same attachment bytes of the same message are processed once.
   @@unique([mailboxId, graphMessageId, attachmentId, contentHash])
   @@index([status, createdAt])
-  @@index([customer, contractNumber])
+  @@index([contentHash])
 }
 
 model ContractAnalysis {
-  id            String   @id @default(cuid())
-  contractId    String
-  contract      Contract @relation(fields: [contractId], references: [id])
-  model         String
-  result        Json // structured output incl. evidence
-  decision      String // APPROVE | REVIEW
-  reasons       Json
-  policyVersion Int?
-  ruleId        String?
-  inputTokens   Int      @default(0)
-  outputTokens  Int      @default(0)
-  costUsd       Decimal  @default(0) @db.Decimal(10, 4)
-  createdAt     DateTime @default(now())
+  id           String   @id @default(cuid())
+  contractId   String
+  contract     Contract @relation(fields: [contractId], references: [id])
+  model        String
+  result       Json
+  decision     String
+  reasons      Json
+  inputTokens  Int      @default(0)
+  outputTokens Int      @default(0)
+  costUsd      Decimal  @default(0) @db.Decimal(10, 4)
+  createdAt    DateTime @default(now())
 
   @@index([contractId])
 }
 
-model SigningPolicy {
-  id                       String   @id @default(cuid())
-  version                  Int      @unique
-  active                   Boolean  @default(false)
-  autonomousSigningEnabled Boolean  @default(false)
-  rules                    Json // customers, types, limits, terms, mandatory review, CC map
-  createdAt                DateTime @default(now())
-  createdBy                String
-}
-
-model SignatureProfile {
-  id                     String    @id @default(cuid())
-  signatoryName          String
-  title                  String
-  signatureImageRef      String? // legacy; the active SignatureImage is used when present
-  certificateRef         String // encrypted blob reference, never plaintext
-  certificateFingerprint String
-  certSubject            String
-  certNotAfter           DateTime
-  selfSigned             Boolean   @default(true)
-  runtimeApprovedAt      DateTime? // owner consent for the signing runtime
-  active                 Boolean   @default(false)
-  createdAt              DateTime  @default(now())
-}
-
 model DocumentRef {
-  id            String   @id @default(cuid())
-  contractId    String
-  contract      Contract @relation(fields: [contractId], references: [id])
-  kind          String // ORIGINAL | SIGNED
-  driveId       String
-  itemId        String
-  sha256        String
-  verification  Json?
-  policyVersion Int?
-  createdAt     DateTime @default(now())
+  id         String   @id @default(cuid())
+  contractId String
+  contract   Contract @relation(fields: [contractId], references: [id])
+  kind       String // ORIGINAL | SIGNED
+  driveId    String
+  itemId     String
+  sha256     String
+  createdAt  DateTime @default(now())
 
   @@unique([contractId, kind])
 }
@@ -156,8 +128,9 @@ model OutlookDraft {
   contractId   String   @unique
   contract     Contract @relation(fields: [contractId], references: [id])
   graphDraftId String?
-  state        String   @default("CREATING") // CREATING | CREATED | ATTACHED | AMBIGUOUS
-  marker       String   @unique // internet-header marker used to find an ambiguous draft
+  webLink      String?
+  state        String   @default("CREATING") // CREATING | CREATED | ATTACHED
+  marker       String   @unique // extended-property marker used to find a draft whose create call had no answer
   to           Json?
   cc           Json?
   attachmentOk Boolean  @default(false)
@@ -185,7 +158,7 @@ model AppSetting {
 
 model UsageRecord {
   id           String   @id @default(cuid())
-  source       String // openai | trigger
+  source       String // openai
   contractId   String?
   model        String?
   inputTokens  Int      @default(0)
@@ -209,28 +182,19 @@ model OAuthConnection {
   updatedAt    DateTime @updatedAt
 }
 
-// One row per customer rule. The signing policy versions are compiled from the enabled rules.
-model SigningRule {
-  id              String   @id @default(cuid())
-  name            String
-  enabled         Boolean  @default(true)
-  customerName    String
-  customerDomains String[]
-  contractType    String   @default("any") // any | sales
-  maxAmount       Decimal  @db.Decimal(14, 2)
-  currency        String
-  paymentTerms    String[]
-  deliveryTerms   String[]
-  instructions    String   @default("")
-  replyTo         String[]
-  cc              String[]
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  @@index([customerName])
+// How the reply draft is prepared for one sender address or one sender domain ("@example.com").
+model SenderRule {
+  id        String   @id @default(cuid())
+  sender    String   @unique // lowercase address, or "@domain"
+  to        String[] // empty: reply to the sender
+  cc        String[]
+  autoSign  Boolean  @default(false)
+  placement Json? // remembered signature position: { page, x, y, width, height, pageCount }
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
-// Versioned handwritten-signature images. The file lives in the owner's OneDrive; only the reference is stored.
+// Versioned signature images. The file lives in the owner's OneDrive; only the reference is stored.
 model SignatureImage {
   id        String    @id @default(cuid())
   version   Int       @unique
@@ -266,7 +230,7 @@ model Contact {
   @@index([domain])
 }
 
-// One row per recipient of a sent message: the raw material for "frequently copied for this customer".
+// One row per recipient of a sent message: the raw material for "frequently copied for this sender".
 model SentRecipient {
   id             String   @id @default(cuid())
   messageId      String

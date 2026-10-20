@@ -1,6 +1,7 @@
 import { z } from "zod";
+import { parsePlacement, type Placement } from "./placement";
 
-const loc = z.object({
+const location = z.object({
   page: z.number().int(),
   x: z.number(),
   y: z.number(),
@@ -9,31 +10,27 @@ const loc = z.object({
   evidence: z.string(),
 });
 
-export const contractExtraction = z.object({
-  isSalesContract: z.boolean(),
-  customer: z.string().nullable(),
-  contractNumber: z.string().nullable(),
-  version: z.string().nullable(),
-  contractDate: z.string().nullable(),
-  currency: z.string().nullable(),
-  amount: z.number().nullable(),
-  contractType: z.string().nullable(),
-  language: z.string().nullable(),
-  articles: z.array(z.object({ style: z.string(), quantity: z.number().nullable() })),
-  paymentTerms: z.string().nullable(),
-  deliveryTerms: z.string().nullable(),
-  obligations: z.array(z.string()),
-  unusualCommitments: z.array(z.string()),
-  existingSignatures: z.array(
-    z.object({ signer: z.string().nullable(), kind: z.enum(["digital", "visual"]), page: z.number().int().nullable() }),
-  ),
-  gfsSignatureLocations: z.array(loc),
-  inconsistencies: z.array(z.string()),
-  missingFields: z.array(z.string()),
-  historyDeviations: z.array(z.string()),
+// What the model may say about a document. It reads; it never decides whether to sign.
+export const documentExtraction = z.object({
+  needsSignature: z.boolean(), // the document expects the recipient (GFS) to sign it
+  title: z.string().nullable(),
+  signatureLocations: z.array(location), // blank areas where GFS signs
   promptInjectionSuspected: z.boolean(),
   confidence: z.number(),
-  evidence: z.array(z.object({ field: z.string(), quote: z.string(), page: z.number().int().nullable() })),
 });
 
-export type ContractExtraction = z.infer<typeof contractExtraction>;
+export type DocumentExtraction = z.infer<typeof documentExtraction>;
+
+// Accepts this schema and the earlier sales-contract one, so existing analyses still show their positions.
+export function readExtraction(result: unknown): { needsSignature: boolean; locations: Placement[]; suspicious: boolean; confidence: number } | null {
+  if (!result || typeof result !== "object") return null;
+  const r = result as Record<string, unknown>;
+  const raw = (r.signatureLocations ?? r.gfsSignatureLocations) as unknown;
+  const locations = Array.isArray(raw) ? raw.map(parsePlacement).filter((p): p is Placement => p !== null) : [];
+  return {
+    needsSignature: typeof r.needsSignature === "boolean" ? r.needsSignature : r.isSalesContract !== false,
+    locations,
+    suspicious: r.promptInjectionSuspected === true,
+    confidence: typeof r.confidence === "number" ? r.confidence : 0,
+  };
+}

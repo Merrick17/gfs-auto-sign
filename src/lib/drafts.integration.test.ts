@@ -78,6 +78,8 @@ before(async () => {
   await seedOAuth(db);
   globalThis.fetch = (async (i: string | URL | Request, init?: RequestInit) => fakeGraph(i, init)) as typeof fetch;
   ({ createReplyDraft } = await import("./drafts"));
+  await db.senderRule.create({ data: { sender: "@acme.test", to: ["contracts@acme.test"], cc: ["sales@gfs.test", "boss@gfs.test"] } });
+  await db.appSetting.create({ data: { key: "draft", value: { message: "Hi <team>,\nsigned copy attached.", cc: ["archive@gfs.test", "sales@gfs.test"] } } });
 });
 
 after(async () => {
@@ -85,30 +87,14 @@ after(async () => {
   await pg.close();
 });
 
-const FULL = {
-  isSalesContract: true, customer: "Acme GmbH", contractNumber: "SC", version: "1", contractDate: null, currency: "EUR", amount: 1, contractType: null,
-  language: "en", articles: [], paymentTerms: null, deliveryTerms: null, obligations: [], unusualCommitments: [], existingSignatures: [],
-  gfsSignatureLocations: [], inconsistencies: [], missingFields: [], historyDeviations: [], promptInjectionSuspected: false, confidence: 0.9, evidence: [],
-};
 let seq = 0;
-async function seedContract() {
+async function seedContract(sender = "buyer@acme.test") {
   seq++;
   const mb = (await db.mailboxConnection.findFirst()) ?? (await db.mailboxConnection.create({ data: { mailboxId: "owner@gfs.test", tenantId: "t" } }));
-  if (!(await db.signingPolicy.findFirst())) {
-    await db.signingPolicy.create({
-      data: {
-        version: 1, active: true, autonomousSigningEnabled: true, createdBy: "t",
-        rules: { minConfidence: 0.8, mandatoryReviewKeywords: [], customers: [{ name: "Acme GmbH", currency: "EUR", maxAmount: 1e6, replyTo: ["buyer@acme.test"], cc: ["sales@gfs.test", "boss@gfs.test"], contractTypes: [], paymentTerms: [], deliveryTerms: [], instructions: "" }] },
-      },
-    });
-  }
   const c = await db.contract.create({
-    data: { mailboxId: mb.id, graphMessageId: `msg${seq}`, attachmentId: "a", attachmentName: "SC.pdf", contentHash: `h${seq}`, customer: "Acme GmbH", contractNumber: `SC-${seq}`, status: "STORED" },
+    data: { mailboxId: mb.id, graphMessageId: `msg${seq}`, attachmentId: "a", attachmentName: "Agreement.pdf", contentHash: `h${seq}`, senderAddress: sender, status: "SIGNED" },
   });
   await db.documentRef.create({ data: { contractId: c.id, kind: "SIGNED", driveId: "drive1", itemId: "signed1", sha256: sha256(signedBytes) } });
-  await db.contractAnalysis.create({
-    data: { contractId: c.id, model: "m", decision: "APPROVE", reasons: [], result: FULL },
-  });
   return c.id;
 }
 
@@ -117,19 +103,28 @@ beforeEach(() => {
   requests = [];
 });
 
-test("creates one reply draft with configured To/CC, attaches the signed PDF, never sends", async () => {
+test("the sender rule sets To and CC, the Settings CC is added once, the signed PDF is attached, nothing is sent", async () => {
   const id = await seedContract();
   await createReplyDraft(id);
   assert.equal(drafts.length, 1);
-  assert.deepEqual(drafts[0].to, ["buyer@acme.test"]);
-  assert.deepEqual(drafts[0].cc, ["sales@gfs.test", "boss@gfs.test"]);
-  assert.deepEqual(drafts[0].attachments.map((a) => a.name), ["signed-SC.pdf"]);
-  assert.match(drafts[0].body, /SC-\d+/);
+  assert.deepEqual(drafts[0].to, ["contracts@acme.test"]);
+  assert.deepEqual(drafts[0].cc, ["sales@gfs.test", "boss@gfs.test", "archive@gfs.test"]);
+  assert.deepEqual(drafts[0].attachments.map((a) => a.name), ["Agreement (signed).pdf"]);
+  assert.match(drafts[0].body, /Hi &lt;team&gt;,<br>signed copy attached./);
   assert.match(drafts[0].body, /quoted original/);
   assert.equal(requests.filter((r) => /send/i.test(r)).length, 0);
   const c = await db.contract.findUniqueOrThrow({ where: { id }, include: { draft: true } });
-  assert.equal(c.status, "DRAFT_READY");
+  assert.equal(c.status, "DRAFT_SAVED");
   assert.equal(c.draft?.state, "ATTACHED");
+  assert.equal(await db.auditEvent.count({ where: { contractId: id, action: "draft-saved" } }), 1);
+});
+
+test("an exact-address rule wins over the domain rule; without To the reply goes to the sender", async () => {
+  await db.senderRule.create({ data: { sender: "ceo@acme.test", to: [], cc: ["ceo-office@gfs.test"] } });
+  const id = await seedContract("ceo@acme.test");
+  await createReplyDraft(id);
+  assert.deepEqual(drafts[0].to, ["sender@customer.test"]); // Outlook reply default, untouched
+  assert.deepEqual(drafts[0].cc, ["ceo-office@gfs.test", "archive@gfs.test", "sales@gfs.test"]);
 });
 
 test("re-running creates no second draft or attachment", async () => {
@@ -147,7 +142,7 @@ test("a lost createReply response is resolved by marker, not by creating another
   assert.equal(drafts.length, 1); // exists server-side
   await createReplyDraft(id);
   assert.equal(drafts.length, 1);
-  assert.deepEqual(drafts[0].cc, ["sales@gfs.test", "boss@gfs.test"]);
+  assert.deepEqual(drafts[0].to, ["contracts@acme.test"]);
   assert.equal(drafts[0].attachments.length, 1);
   assert.equal(drafts[0].body.match(/gfs-reply/g)?.length, 1);
 });
@@ -158,6 +153,6 @@ test("a failed recipient update is repaired on retry without duplicating anythin
   await assert.rejects(createReplyDraft(id));
   await createReplyDraft(id);
   assert.equal(drafts.length, 1);
-  assert.deepEqual(drafts[0].to, ["buyer@acme.test"]);
+  assert.deepEqual(drafts[0].to, ["contracts@acme.test"]);
   assert.equal(drafts[0].attachments.length, 1);
 });

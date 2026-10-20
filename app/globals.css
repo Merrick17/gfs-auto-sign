@@ -1,95 +1,115 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/*
+  GFS Contract Agent on Proton's "Snow" light theme, with Proton's purple replaced by blue.
+  Every value below is Proton's (packages/colors/themes/dist/snow.theme.css, packages/styles/scss in
+  ProtonMail/WebClients) except the primary/interaction ramp: #6D4AFF becomes #2563EB, which has the same
+  luminance (5.2:1 on white), and its tints and shades follow Proton's own steps (minor = 10%/20% over white,
+  major = 90%/80%/70% of the base). The full mapping is in docs/ui-proton-notes.md.
+*/
 :root {
-  --radius: 0.625rem;
-  --background: #f6f5f1;
-  --foreground: #1c2230;
-  --card: #ffffff;
-  --card-foreground: #1c2230;
-  --popover: #ffffff;
-  --popover-foreground: #1c2230;
-  --primary: #1b3a5c;
+  color-scheme: light;
+
+  /* Proton --primary / --interaction-norm ramp, in blue */
+  --primary-minor-2: #e9effd;
+  --primary-minor-1: #d3e0fb;
+  --primary: #2563eb;
+  --primary-major-1: #2159d4;
+  --primary-major-2: #1e4fbc;
+  --primary-major-3: #1a45a5;
   --primary-foreground: #ffffff;
-  --secondary: #eeece6;
-  --secondary-foreground: #1c2230;
-  --muted: #efede7;
-  --muted-foreground: #667085;
-  --accent: #e9eef4;
-  --accent-foreground: #1b3a5c;
-  --destructive: #b42318;
-  --border: #e4e2db;
-  --input: #d7d4ca;
-  --ring: #3b6ea5;
+  --primary-hover: var(--primary-major-1);
+  --primary-active: var(--primary-major-2);
+  --primary-soft: var(--primary-minor-2);
+  --primary-line: var(--primary-minor-1);
+  --focus-ring: rgb(37 99 235 / 0.2);
 
-  --success: #0f6b57;
-  --success-soft: #e2f1ec;
-  --warning: #8f5200;
-  --warning-soft: #fbefd9;
-  --danger: #b42318;
-  --danger-soft: #fbe7e4;
-  --info: #2a5a93;
-  --info-soft: #e5edf6;
+  /* Proton Snow neutrals */
+  --text-norm: #0c0c14;
+  --text-weak: #5c5958;
+  --text-hint: #8f8d8a;
+  --text-disabled: #c2bfbc;
+  --background-norm: #ffffff;
+  --background-weak: #f5f4f2;
+  --background-strong: #e5e4e1;
+  --background-lowered: #f8f8f6;
+  --border-norm: #d1cfcd;
+  --border-weak: #eae7e4;
+  --field-norm: #adaba8;
+  --field-hover: #8f8d8a;
+  --interaction-weak-minor-2: #f9f8f7;
+  --interaction-weak-minor-1: #f5f3f2;
+  --interaction-weak: #eae7e4;
+  --interaction-weak-major-1: #dedbd9;
+  --interaction-default-hover: rgb(194 193 192 / 0.2);
+  --interaction-default-active: rgb(194 192 190 / 0.35);
+  --backdrop-norm: rgb(38 42 51 / 0.48);
 
-  --tint-outlook: #2a5a93;
-  --tint-outlook-soft: #e5edf6;
-  --tint-signature: #54449e;
-  --tint-signature-soft: #ebe8f7;
-  --tint-rules: #0f6b57;
-  --tint-rules-soft: #e2f1ec;
-  --tint-people: #8f5200;
-  --tint-people-soft: #fbefd9;
-  --tint-ai: #7a3a9e;
-  --tint-ai-soft: #f1e7f7;
+  /* Proton signal colours. Text uses the first shade that reaches 4.5:1 on white. */
+  --signal-success: #1ea885;
+  --signal-success-text: #18866a;
+  --signal-success-minor-2: #e9f6f3;
+  --signal-warning: #ff9900;
+  --signal-warning-text: #c24400; /* Proton #d94c00 is 4.2:1 on white; one step darker reaches 5.1:1 */
+  --signal-warning-minor-2: #fff5e6;
+  --signal-danger: #dc3251;
+  --signal-danger-text: #c62d49;
+  --signal-danger-minor-2: #fcebee;
+  --signal-info: #239ece;
+
+  /* Names used by the components, mapped onto the tokens above */
+  --background: var(--background-norm);
+  --foreground: var(--text-norm);
+  --card: var(--background-norm);
+  --card-foreground: var(--text-norm);
+  --popover: var(--background-norm);
+  --popover-foreground: var(--text-norm);
+  --secondary: var(--background-weak);
+  --secondary-foreground: var(--text-norm);
+  --muted: var(--background-weak);
+  --muted-foreground: var(--text-weak);
+  --subtle: var(--text-hint);
+  --accent: var(--interaction-weak-minor-1);
+  --accent-foreground: var(--text-norm);
+  --hover: var(--interaction-default-hover);
+  --selected: var(--primary-minor-2);
+  --destructive: var(--signal-danger);
+  --border: var(--border-weak);
+  --border-strong: var(--border-norm);
+  --input: var(--field-norm);
+  --ring: var(--primary);
+  --success: var(--signal-success-text);
+  --success-dot: var(--signal-success);
+  --success-soft: var(--signal-success-minor-2);
+  --warning: var(--signal-warning-text);
+  --warning-dot: var(--signal-warning);
+  --warning-soft: var(--signal-warning-minor-2);
+  --danger: var(--signal-danger-text);
+  --danger-dot: var(--signal-danger);
+  --danger-soft: var(--signal-danger-minor-2);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #16191f;
-    --foreground: #eceff4;
-    --card: #1e222a;
-    --card-foreground: #eceff4;
-    --popover: #1e222a;
-    --popover-foreground: #eceff4;
-    --primary: #8fb4e3;
-    --primary-foreground: #0f1a2b;
-    --secondary: #2a2f39;
-    --secondary-foreground: #eceff4;
-    --muted: #262b34;
-    --muted-foreground: #9aa3b2;
-    --accent: #283140;
-    --accent-foreground: #cfe0f5;
-    --destructive: #f08a80;
-    --border: #2f3541;
-    --input: #3a4150;
-    --ring: #6d9bd1;
-    --success: #5fcfb0;
-    --success-soft: #16312b;
-    --warning: #f0b45c;
-    --warning-soft: #3a2c14;
-    --danger: #f08a80;
-    --danger-soft: #3a1f1c;
-    --info: #8fb4e3;
-    --info-soft: #1c2a3e;
-    --tint-outlook: #8fb4e3;
-    --tint-outlook-soft: #1c2a3e;
-    --tint-signature: #b7a9f0;
-    --tint-signature-soft: #28244a;
-    --tint-rules: #5fcfb0;
-    --tint-rules-soft: #16312b;
-    --tint-people: #f0b45c;
-    --tint-people-soft: #3a2c14;
-    --tint-ai: #d3a6ee;
-    --tint-ai-soft: #33203f;
-  }
+@theme {
+  /* Proton shadows: norm (resting controls), raised (cards), lifted (menus, dialogs). */
+  --shadow-xs: 0 1px 4px rgb(0 0 0 / 0.1);
+  --shadow-norm: 0 1px 4px rgb(0 0 0 / 0.1);
+  --shadow-raised: 0 4px 12px rgb(0 0 0 / 0.1);
+  --shadow-pop: 0 8px 24px rgb(0 0 0 / 0.16);
+  --shadow-panel: none;
+  --default-transition-duration: 150ms;
+  --default-transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
 }
 
 @theme inline {
-  --font-sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+  /* Proton radii: base 8 → sm 4, md 8, lg 12, xl 16, xxl 24. Buttons and fields use md. */
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 24px;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -97,45 +117,86 @@
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-active: var(--primary-active);
   --color-primary-foreground: var(--primary-foreground);
+  --color-primary-soft: var(--primary-soft);
+  --color-primary-line: var(--primary-line);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
+  --color-subtle: var(--subtle);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
+  --color-hover: var(--hover);
+  --color-selected: var(--selected);
+  --color-lowered: var(--background-lowered);
+  --color-strong: var(--background-strong);
   --color-destructive: var(--destructive);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-success: var(--success);
+  --color-success-dot: var(--success-dot);
   --color-success-soft: var(--success-soft);
   --color-warning: var(--warning);
+  --color-warning-dot: var(--warning-dot);
   --color-warning-soft: var(--warning-soft);
   --color-danger: var(--danger);
+  --color-danger-dot: var(--danger-dot);
   --color-danger-soft: var(--danger-soft);
-  --color-info: var(--info);
-  --color-info-soft: var(--info-soft);
-  --color-tint-outlook: var(--tint-outlook);
-  --color-tint-outlook-soft: var(--tint-outlook-soft);
-  --color-tint-signature: var(--tint-signature);
-  --color-tint-signature-soft: var(--tint-signature-soft);
-  --color-tint-rules: var(--tint-rules);
-  --color-tint-rules-soft: var(--tint-rules-soft);
-  --color-tint-people: var(--tint-people);
-  --color-tint-people-soft: var(--tint-people-soft);
-  --color-tint-ai: var(--tint-ai);
-  --color-tint-ai-soft: var(--tint-ai-soft);
+  --color-info: var(--signal-info);
+}
+
+/*
+  Proton type scale: body 14/20 (1.4286), sm 12, lg 16, xl 18, 2xl 20; headings h1 36, h2 28, h3 20, h4 18,
+  h5 17, h6 16 at normal weight; weights 400 / 600 (semibold) / 700 (bold).
+*/
+@utility text-page { font-size: 20px; line-height: 28px; font-weight: 600; }
+@utility text-section { font-size: 16px; line-height: 24px; font-weight: 600; }
+@utility text-dense { font-size: 14px; line-height: 20px; }
+@utility text-meta { font-size: 12px; line-height: 16px; }
+@utility tnum { font-variant-numeric: tabular-nums; }
+
+@keyframes appear { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+@utility animate-appear { animation: appear 180ms cubic-bezier(0.2, 0, 0, 1) both; }
+
+/* A running step breathes; nothing else on screen moves by itself. */
+@keyframes pulse-ring { 0% { box-shadow: 0 0 0 0 rgb(37 99 235 / 0.45); } 70% { box-shadow: 0 0 0 5px rgb(37 99 235 / 0); } 100% { box-shadow: 0 0 0 0 rgb(37 99 235 / 0); } }
+@utility animate-pulse-ring { animation: pulse-ring 1.6s cubic-bezier(0.2, 0, 0, 1) infinite; }
+
+/* Proton focus: the focus colour as border plus a 3px ring of it at 20%. */
+:where(button, a, input, select, textarea, summary, [tabindex]):focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+::selection { background-color: var(--primary); color: var(--primary-foreground); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    font-synthesis: none;
+  }
   body {
-    @apply bg-background text-foreground font-sans text-[14px] leading-6 antialiased;
+    @apply bg-background text-foreground font-sans text-[14px] leading-5 antialiased;
   }
-  h1, h2, h3 {
-    @apply tracking-tight;
-  }
+}
+
+/* Logo motion. The signature stroke rests fully drawn; while the agent checks mail it writes itself out on a loop
+   (a real running state), and stops as soon as the check ends. With reduced motion it simply stays drawn. */
+.brand-stroke { stroke-dasharray: 1; stroke-dashoffset: 0; }
+@keyframes brand-write { 0% { stroke-dashoffset: 1; } 55%, 75% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: -1; } }
+.brand-stroke-busy { animation: brand-write 1.6s cubic-bezier(0.45, 0, 0.2, 1) infinite; }
+@keyframes brand-sweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+.brand-sweep::after { content: ""; position: absolute; inset: 0; width: 40%; border-radius: inherit; background: var(--primary); animation: brand-sweep 1.2s cubic-bezier(0.45, 0, 0.2, 1) infinite; }
+@keyframes brand-breathe { 50% { opacity: 0.55; } }
+.brand-busy-img { animation: brand-breathe 1.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .brand-stroke-busy, .brand-sweep::after, .brand-busy-img { animation: none; }
 }

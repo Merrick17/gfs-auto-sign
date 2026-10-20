@@ -6,7 +6,7 @@ import { dispatchEvent } from "@/lib/dispatch";
 // Maintenance only; it never reads the mailbox.
 export const dispatchPendingEvents = schedules.task({
   id: "dispatch-pending-events",
-  cron: "*/5 * * * *",
+  cron: { pattern: "*/5 * * * *", window: "1m" },
   run: async () => {
     const pending = await getDb().incomingEvent.findMany({
       where: { dispatchStatus: "PENDING", receivedAt: { lt: new Date(Date.now() - 30_000) } },

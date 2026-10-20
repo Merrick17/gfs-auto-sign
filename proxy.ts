@@ -10,5 +10,5 @@ export const proxy = auth((req) => {
 });
 
 export const config = {
-  matcher: ["/((?!login|api/auth|api/webhooks/microsoft-graph|_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/((?!login|brand/|api/auth|api/webhooks/microsoft-graph|_next/static|_next/image|favicon.ico).*)"],
 };

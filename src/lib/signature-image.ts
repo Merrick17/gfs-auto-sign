@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { PDFDocument } from "pdf-lib";
 import { getDb } from "./db";
 import { downloadFile, uploadFile } from "./sharepoint";
 
@@ -22,11 +23,22 @@ export function inspectPng(bytes: Buffer): { width: number; height: number } {
   return { width, height };
 }
 
+// The header can look right while the image data is damaged or unsupported. Signing would then fail on every contract,
+// so the exact embedding step used at signing time is tried first.
+async function assertDecodable(bytes: Buffer) {
+  try {
+    await PDFDocument.create().then((d) => d.embedPng(bytes));
+  } catch {
+    throw new SignatureImageError("That image couldn't be read. Please export it again as a standard PNG.");
+  }
+}
+
 export const getActiveSignatureImage = () => getDb().signatureImage.findFirst({ where: { active: true }, orderBy: { version: "desc" } });
 
 // Each upload is a new version: the previous file stays in OneDrive so earlier signing records remain accurate.
 export async function saveSignatureImage(bytes: Buffer, originalName: string) {
   const { width, height } = inspectPng(bytes);
+  await assertDecodable(bytes);
   const db = getDb();
   const last = await db.signatureImage.findFirst({ orderBy: { version: "desc" } });
   const version = (last?.version ?? 0) + 1;

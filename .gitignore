@@ -12,6 +12,7 @@
 
 # testing
 /coverage
+/artifacts/
 
 # next.js
 /.next/
@@ -47,3 +48,13 @@ src/generated
 .neon
 
 secrets/
+/.next-qa/
+/.next-qa-agent/
+
+.vercel
+.env*
+
+# local run artifacts
+.arena/
+.dev.log
+.deploy.log
